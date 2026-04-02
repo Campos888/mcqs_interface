@@ -1,15 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  useReactTable,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  getExpandedRowModel,
-  flexRender,
-} from '@tanstack/react-table';
-import { BookOpen, LogOut, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { BookOpen, LogOut, Search, RefreshCw, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, Trash2 } from 'lucide-react';
 import pb from '../lib/pocketbase';
 
 // ── Costanti di stile ─────────────────────────────────────────────────────────
@@ -24,25 +15,25 @@ const BLOOM_STYLES = {
 };
 
 const C = {
-  bg:         '#F5F0E8',
-  surface:    '#FEFCF7',
-  border:     '#DDD5C2',
-  borderLight:'#EDE8DC',
-  headerBg:   '#F0EBE0',
-  expandBg:   '#F8F5EF',
-  green:      '#2C3E2D',
-  greenLight: '#3A5C3C',
-  greenText:  '#D4E8D0',
-  greenAccent:'#A8C5A0',
-  text:       '#1C2B1D',
-  textMuted:  '#7A7060',
-  textFaint:  '#9A9080',
-  textBody:   '#5A5040',
-  dot:        '#B8AD9A',
-  error:      { bg: '#F7EDE6', border: '#E8C8B8', text: '#8A3A1A' },
+  bg:          '#F5F0E8',
+  surface:     '#FEFCF7',
+  border:      '#DDD5C2',
+  borderLight: '#EDE8DC',
+  headerBg:    '#F0EBE0',
+  expandBg:    '#F8F5EF',
+  green:       '#2C3E2D',
+  greenLight:  '#3A5C3C',
+  greenText:   '#D4E8D0',
+  greenAccent: '#A8C5A0',
+  text:        '#1C2B1D',
+  textMuted:   '#7A7060',
+  textFaint:   '#9A9080',
+  textBody:    '#5A5040',
+  dot:         '#B8AD9A',
+  error:       { bg: '#F7EDE6', border: '#E8C8B8', text: '#8A3A1A' },
 };
 
-const font = "'DM Sans', sans-serif";
+const font  = "'DM Sans', sans-serif";
 const serif = 'Lora, serif';
 
 // ── Sub-componenti ────────────────────────────────────────────────────────────
@@ -76,52 +67,38 @@ function JsonItems({ value }) {
   );
 }
 
-function ExpandedRow({ row }) {
-  const q = row.original;
+function QuestionDetail({ question }) {
   return (
     <tr>
-      <td colSpan={4} style={{ background: C.expandBg, borderBottom: `1px solid ${C.border}`, padding: 0 }}>
-        <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
+      <td colSpan={3} style={{ background: C.expandBg, borderBottom: `1px solid ${C.border}`, padding: 0 }}>
+        <div style={{ padding: '20px 24px 20px 60px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
 
-          {/* Testo completo */}
           <div>
             <p style={{ fontSize: 10, fontWeight: 500, color: C.textFaint, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, marginTop: 0 }}>
               Testo completo
             </p>
             <p style={{ fontSize: 14, color: C.text, lineHeight: 1.7, margin: 0 }}>
-              {q.content || '—'}
+              {question.content || '—'}
             </p>
           </div>
 
-          {/* Opzioni */}
           <div>
             <p style={{ fontSize: 10, fontWeight: 500, color: C.textFaint, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, marginTop: 0 }}>
               Opzioni
             </p>
-            <JsonItems value={q.options} />
+            <JsonItems value={question.options} />
           </div>
 
-          {/* Risposta corretta */}
           <div>
             <p style={{ fontSize: 10, fontWeight: 500, color: C.textFaint, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, marginTop: 0 }}>
               Risposta corretta
             </p>
-            <JsonItems value={q.correct_answer} />
+            <JsonItems value={question.correct_answer} />
           </div>
 
         </div>
       </td>
     </tr>
-  );
-}
-
-function SortIcon({ column }) {
-  const sorted = column.getIsSorted();
-  return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', marginLeft: 4, verticalAlign: 'middle', gap: 1 }}>
-      <ChevronUp size={10} style={{ color: sorted === 'asc' ? C.green : C.dot }} />
-      <ChevronDown size={10} style={{ color: sorted === 'desc' ? C.green : C.dot }} />
-    </span>
   );
 }
 
@@ -137,17 +114,23 @@ function IconBtn({ onClick, disabled, title, children }) {
 // ── Componente principale ─────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [data, setData]         = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState('');
-  const [globalFilter, setGlobalFilter] = useState('');
-  const [sorting, setSorting]   = useState([]);
-  const [expanded, setExpanded] = useState({});
+  const [data, setData]                     = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState('');
+  const [globalFilter, setGlobalFilter]     = useState('');
+  const [expandedMatters, setExpandedMatters]     = useState(new Set());
+  const [expandedQuestions, setExpandedQuestions] = useState(new Set());
+  const [selectedIds, setSelectedIds]             = useState(new Set());
+  const [showDeleteModal, setShowDeleteModal]     = useState(false);
+  const [deleting, setDeleting]                   = useState(false);
+  const [page, setPage]                     = useState(0);
+  const [pageSize, setPageSize]             = useState(10);
   const navigate = useNavigate();
   const user = pb.authStore.model;
 
   async function loadQuestions() {
     setLoading(true); setError('');
+    setSelectedIds(new Set());
     try {
       const records = await pb.collection('Question').getFullList({ sort: '-created' });
       setData(records);
@@ -158,66 +141,79 @@ export default function Dashboard() {
     }
   }
 
+  function toggleSelect(id, e) {
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    setDeleting(true);
+    try {
+      await Promise.all([...selectedIds].map(id => pb.collection('Question').delete(id)));
+      setSelectedIds(new Set());
+      setShowDeleteModal(false);
+      await loadQuestions();
+    } catch {
+      setError('Errore durante l\'eliminazione delle domande.');
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   useEffect(() => { loadQuestions(); }, []);
 
-  // ── Definizione colonne ──
-  const columns = useMemo(() => [
-    {
-      id: 'expander',
-      header: '',
-      size: 36,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <ChevronRight size={14} style={{ transform: row.getIsExpanded() ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: row.getIsExpanded() ? C.green : C.textMuted }} />
-      ),
-    },
-    {
-      accessorKey: 'matter',
-      header: 'Materia',
-      size: 140,
-      cell: ({ getValue }) => (
-        <span style={{ fontWeight: 500, color: C.text, fontSize: 13 }}>{getValue() || '—'}</span>
-      ),
-    },
-    {
-      accessorKey: 'bloom_level',
-      header: 'Livello Bloom',
-      size: 130,
-      cell: ({ getValue }) => <BloomBadge level={getValue()} />,
-    },
-    {
-      accessorKey: 'content',
-      header: 'Anteprima contenuto',
-      enableSorting: false,
-      cell: ({ getValue }) => (
-        <span style={{ fontSize: 12.5, color: C.textBody, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {getValue() || '—'}
-        </span>
-      ),
-    },
-  ], []);
+  // Resetta la pagina quando cambia il filtro
+  useEffect(() => { setPage(0); }, [globalFilter]);
 
-  // ── Istanza tabella ──
-  const table = useReactTable({
-    data,
-    columns,
-    state: { globalFilter, sorting, expanded },
-    onGlobalFilterChange: setGlobalFilter,
-    onSortingChange: setSorting,
-    onExpandedChange: setExpanded,
-    getRowCanExpand: () => true,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-    initialState: { pagination: { pageSize: 10 } },
-  });
+  // ── Filtraggio ──
+  const filteredQuestions = useMemo(() => {
+    if (!globalFilter) return data;
+    const q = globalFilter.toLowerCase();
+    return data.filter(row =>
+      row.matter?.toLowerCase().includes(q) ||
+      row.content?.toLowerCase().includes(q) ||
+      row.bloom_level?.toLowerCase().includes(q)
+    );
+  }, [data, globalFilter]);
+
+  // ── Raggruppamento per materia ──
+  const groupedData = useMemo(() => {
+    const groups = {};
+    filteredQuestions.forEach(q => {
+      const matter = q.matter || 'Senza materia';
+      if (!groups[matter]) groups[matter] = [];
+      groups[matter].push(q);
+    });
+    return Object.entries(groups).map(([matter, questions]) => ({ matter, questions }));
+  }, [filteredQuestions]);
+
+  const totalGroups = groupedData.length;
+  const pageCount   = Math.max(1, Math.ceil(totalGroups / pageSize));
+  const safePageIdx = Math.min(page, pageCount - 1);
+  const pagedGroups = groupedData.slice(safePageIdx * pageSize, (safePageIdx + 1) * pageSize);
+
+  function toggleMatter(matter) {
+    setExpandedMatters(prev => {
+      const next = new Set(prev);
+      next.has(matter) ? next.delete(matter) : next.add(matter);
+      return next;
+    });
+  }
+
+  function toggleQuestion(id) {
+    setExpandedQuestions(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   function handleLogout() { pb.authStore.clear(); navigate('/login'); }
-
-  const { pageIndex, pageSize } = table.getState().pagination;
-  const totalFiltered = table.getFilteredRowModel().rows.length;
 
   // ── Render ──
   return (
@@ -227,6 +223,7 @@ export default function Dashboard() {
         @keyframes spin { to { transform: rotate(360deg); } }
         .tbl-row { cursor: pointer; transition: background 0.1s; }
         .tbl-row:hover > td { background: #EDE8DC !important; }
+        .tbl-row-q:hover > td { background: #EDE8DC !important; }
       `}</style>
 
       <div style={{ minHeight: '100vh', background: C.bg, fontFamily: font }}>
@@ -260,7 +257,7 @@ export default function Dashboard() {
               Domande d'Esame
             </h1>
             <p style={{ fontSize: 13, color: C.textMuted, margin: 0 }}>
-              {totalFiltered} domande{globalFilter ? ' trovate' : ' totali'} · clicca una riga per espanderla
+              {filteredQuestions.length} domande{globalFilter ? ' trovate' : ' totali'} · {totalGroups} materie · clicca una riga per espanderla
             </p>
           </div>
 
@@ -278,10 +275,9 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Righe per pagina */}
             <select
               value={pageSize}
-              onChange={e => table.setPageSize(Number(e.target.value))}
+              onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
               style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: C.textMuted, fontFamily: font, cursor: 'pointer', outline: 'none' }}
             >
               {[10, 20, 50].map(n => <option key={n} value={n}>{n} per pagina</option>)}
@@ -291,6 +287,14 @@ export default function Dashboard() {
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'pointer', color: C.textMuted }}>
               <RefreshCw size={14} />
             </button>
+
+            {selectedIds.size > 0 && (
+              <button onClick={() => setShowDeleteModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: C.error.bg, border: `1px solid ${C.error.border}`, borderRadius: 8, cursor: 'pointer', color: C.error.text, fontFamily: font, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                <Trash2 size={14} />
+                Elimina {selectedIds.size} {selectedIds.size === 1 ? 'domanda' : 'domande'}
+              </button>
+            )}
           </div>
 
           {/* Errore */}
@@ -306,62 +310,110 @@ export default function Dashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
 
                 <thead>
-                  {table.getHeaderGroups().map(hg => (
-                    <tr key={hg.id}>
-                      {hg.headers.map(header => (
-                        <th key={header.id}
-                          onClick={header.column.getToggleSortingHandler()}
-                          style={{
-                            padding: '10px 14px', textAlign: 'left',
-                            fontSize: 10.5, fontWeight: 500, color: C.textMuted,
-                            letterSpacing: '0.06em', textTransform: 'uppercase',
-                            borderBottom: `1px solid ${C.border}`, background: C.headerBg,
-                            whiteSpace: 'nowrap', userSelect: 'none',
-                            cursor: header.column.getCanSort() ? 'pointer' : 'default',
-                            width: header.column.getSize(),
-                          }}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          {header.column.getCanSort() && <SortIcon column={header.column} />}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
+                  <tr>
+                    <th style={thStyle(72)}></th>
+                    <th style={thStyle()}>Materia / Domanda</th>
+                    <th style={thStyle(150)}>Livello Bloom</th>
+                  </tr>
                 </thead>
 
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint }}>
+                      <td colSpan={3} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint }}>
                         <span style={{ display: 'inline-block', width: 16, height: 16, border: `2px solid ${C.border}`, borderTopColor: '#5C7A5E', borderRadius: '50%', animation: 'spin 0.7s linear infinite', marginRight: 8, verticalAlign: 'middle' }} />
                         Caricamento…
                       </td>
                     </tr>
-                  ) : table.getRowModel().rows.length === 0 ? (
+                  ) : pagedGroups.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
+                      <td colSpan={3} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
                         Nessuna domanda trovata.
                       </td>
                     </tr>
                   ) : (
-                    table.getRowModel().rows.flatMap(row => {
-                      const isEven = row.index % 2 === 0;
-                      const rowBg = isEven ? 'transparent' : '#FAF7F2';
-                      return [
-                        <tr key={row.id} className="tbl-row"
-                          onClick={row.getToggleExpandedHandler()}
-                          style={{ borderBottom: `1px solid ${C.borderLight}` }}
+                    pagedGroups.flatMap(({ matter, questions }, gi) => {
+                      const isMatterExpanded = expandedMatters.has(matter);
+                      const isEvenGroup = gi % 2 === 0;
+                      const groupBg = isEvenGroup ? 'transparent' : '#FAF7F2';
+
+                      const selectedInGroup = questions.filter(q => selectedIds.has(q.id)).length;
+                      const allInGroupSelected = selectedInGroup === questions.length && questions.length > 0;
+
+                      const groupRow = (
+                        <tr key={`group-${matter}`} className="tbl-row"
+                          onClick={() => toggleMatter(matter)}
+                          style={{ borderBottom: `1px solid ${isMatterExpanded ? C.border : C.borderLight}` }}
                         >
-                          {row.getVisibleCells().map(cell => (
-                            <td key={cell.id} style={{ padding: '11px 14px', verticalAlign: 'middle', background: rowBg }}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {/* Expander */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', background: groupBg, width: 72 }}>
+                            <ChevronRight size={14} style={{ transform: isMatterExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: isMatterExpanded ? C.green : C.textMuted, display: 'block' }} />
+                          </td>
+                          {/* Nome materia */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', background: groupBg }}>
+                            <span style={{ fontFamily: serif, fontWeight: 500, fontSize: 14, color: C.text }}>
+                              {matter}
+                            </span>
+                          </td>
+                          {/* Conteggio domande */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', background: groupBg, textAlign: 'right' }}>
+                            {selectedInGroup > 0 && (
+                              <span style={{ fontSize: 11, color: C.error.text, background: C.error.bg, border: `1px solid ${C.error.border}`, borderRadius: 20, padding: '2px 8px', marginRight: 6, whiteSpace: 'nowrap' }}>
+                                {allInGroupSelected ? 'tutte selezionate' : `${selectedInGroup} selezionate`}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 12, color: C.textMuted, background: C.headerBg, border: `1px solid ${C.borderLight}`, borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+                              {questions.length} {questions.length === 1 ? 'domanda' : 'domande'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+
+                      if (!isMatterExpanded) return [groupRow];
+
+                      const questionRows = questions.flatMap((q, qi) => {
+                        const isQuestionExpanded = expandedQuestions.has(q.id);
+                        const qBg = '#F3EFE8';
+
+                        const qRow = (
+                          <tr key={`q-${q.id}`} className="tbl-row-q"
+                            onClick={() => toggleQuestion(q.id)}
+                            style={{ borderBottom: `1px solid ${C.borderLight}`, cursor: 'pointer', transition: 'background 0.1s' }}
+                          >
+                            {/* Checkbox + Expander */}
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', background: qBg, width: 72 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 4 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(q.id)}
+                                  onChange={e => toggleSelect(q.id, e)}
+                                  onClick={e => e.stopPropagation()}
+                                  style={{ width: 14, height: 14, cursor: 'pointer', accentColor: C.green, flexShrink: 0 }}
+                                />
+                                <ChevronRight size={13} style={{ transform: isQuestionExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: isQuestionExpanded ? C.green : C.textFaint, display: 'block', flexShrink: 0 }} />
+                              </div>
                             </td>
-                          ))}
-                        </tr>,
-                        row.getIsExpanded() && (
-                          <ExpandedRow key={`${row.id}-expanded`} row={row} />
-                        ),
-                      ];
+                            {/* Anteprima contenuto */}
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', background: qBg }}>
+                              <span style={{ fontSize: 12.5, color: C.textBody, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                {q.content || '—'}
+                              </span>
+                            </td>
+                            {/* Badge Bloom */}
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', background: qBg }}>
+                              <BloomBadge level={q.bloom_level} />
+                            </td>
+                          </tr>
+                        );
+
+                        const detailRow = isQuestionExpanded
+                          ? <QuestionDetail key={`detail-${q.id}`} question={q} />
+                          : null;
+
+                        return detailRow ? [qRow, detailRow] : [qRow];
+                      });
+
+                      return [groupRow, ...questionRows];
                     })
                   )}
                 </tbody>
@@ -371,23 +423,23 @@ export default function Dashboard() {
           </div>
 
           {/* ── Paginazione ── */}
-          {!loading && totalFiltered > 0 && (
+          {!loading && totalGroups > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 12, color: C.textFaint }}>
-                Pagina {pageIndex + 1} di {table.getPageCount()} · {totalFiltered} risultati
+                Pagina {safePageIdx + 1} di {pageCount} · {totalGroups} materie · {filteredQuestions.length} domande
               </span>
 
               <div style={{ display: 'flex', gap: 4 }}>
-                <IconBtn onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()} title="Prima pagina">
+                <IconBtn onClick={() => setPage(0)} disabled={safePageIdx === 0} title="Prima pagina">
                   <ChevronsLeft size={13} />
                 </IconBtn>
-                <IconBtn onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} title="Pagina precedente">
+                <IconBtn onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePageIdx === 0} title="Pagina precedente">
                   <ChevronLeft size={13} />
                 </IconBtn>
-                <IconBtn onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} title="Pagina successiva">
+                <IconBtn onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePageIdx >= pageCount - 1} title="Pagina successiva">
                   <ChevronRight size={13} />
                 </IconBtn>
-                <IconBtn onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()} title="Ultima pagina">
+                <IconBtn onClick={() => setPage(pageCount - 1)} disabled={safePageIdx >= pageCount - 1} title="Ultima pagina">
                   <ChevronsRight size={13} />
                 </IconBtn>
               </div>
@@ -396,6 +448,68 @@ export default function Dashboard() {
 
         </main>
       </div>
+
+      {/* ── Modale di conferma eliminazione ── */}
+      {showDeleteModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(28,43,29,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+          onClick={() => { if (!deleting) setShowDeleteModal(false); }}
+        >
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '28px 32px', maxWidth: 420, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', fontFamily: font }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 36, height: 36, background: C.error.bg, border: `1px solid ${C.error.border}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Trash2 size={16} color={C.error.text} />
+              </div>
+              <h2 style={{ fontFamily: serif, fontSize: 17, fontWeight: 500, color: C.text, margin: 0 }}>
+                Elimina domande
+              </h2>
+            </div>
+
+            <p style={{ fontSize: 14, color: C.textBody, lineHeight: 1.6, margin: '0 0 24px' }}>
+              Stai per eliminare <strong>{selectedIds.size} {selectedIds.size === 1 ? 'domanda' : 'domande'}</strong>. Questa azione è irreversibile.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                style={{ padding: '8px 18px', background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, cursor: deleting ? 'not-allowed' : 'pointer', color: C.textMuted, fontFamily: font, fontSize: 13, opacity: deleting ? 0.5 : 1 }}
+              >
+                Annulla
+              </button>
+              <button
+                onClick={deleteSelected}
+                disabled={deleting}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: C.error.text, border: 'none', borderRadius: 8, cursor: deleting ? 'not-allowed' : 'pointer', color: '#FFF', fontFamily: font, fontSize: 13, fontWeight: 500, opacity: deleting ? 0.8 : 1 }}
+              >
+                {deleting && (
+                  <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                )}
+                {deleting ? 'Eliminazione…' : 'Elimina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
+}
+
+// ── Helper stile th ───────────────────────────────────────────────────────────
+function thStyle(width) {
+  return {
+    padding: '10px 14px',
+    textAlign: 'left',
+    fontSize: 10.5,
+    fontWeight: 500,
+    color: C.textMuted,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    borderBottom: `1px solid ${C.border}`,
+    background: C.headerBg,
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+    ...(width ? { width } : {}),
+  };
 }
