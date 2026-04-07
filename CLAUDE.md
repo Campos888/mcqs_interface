@@ -9,6 +9,7 @@
 | Routing  | React Router DOM                    |
 | Icone    | lucide-react                        |
 | Stile    | Inline CSS (nessuna libreria UI)    |
+| AI       | OpenRouter API (`VITE_OPENROUTER_API_KEY`) |
 
 ---
 
@@ -17,13 +18,23 @@
 ```
 src/
   lib/
-    pocketbase.js          # Istanza PocketBase singleton
+    pocketbase.js              # Istanza PocketBase singleton
+    classifyBloom.js           # Classificazione Bloom via council di 3 modelli AI
   components/
-    Login.jsx              # Pagina di login
-    Dashboard.jsx          # Pagina principale (domande d'esame)
-    ProtectedRoute.jsx     # Guard per rotte autenticate
-  App.jsx                  # Router principale
-  main.jsx                 # Entry point React
+    Login.jsx                  # Pagina di login
+    ProtectedRoute.jsx         # Guard per rotte autenticate
+    dashboard/
+      Dashboard.jsx            # Pagina principale (domande d'esame)
+      AddQuestionModal.jsx     # Modale creazione domanda
+      EditQuestionModal.jsx    # Modale modifica domanda
+      SuggestInput.jsx         # Input testo con dropdown suggerimenti
+  styles/
+    theme.js                   # Palette colori, font, BLOOM_STYLES, BLOOM_LEVELS, BLOOM_LABELS
+  App.jsx                      # Router principale
+  main.jsx                     # Entry point React
+public/
+  prompts/
+    req_prompt.txt             # Template prompt per classificazione Bloom (usato da classifyBloom.js)
 ```
 
 **Route:**
@@ -77,7 +88,7 @@ pb.collection('Question').update(id, {
 
 ---
 
-## Dashboard.jsx — Comportamento attuale
+## Dashboard — Comportamento attuale
 
 ### Struttura tabella a tre livelli di espansione
 
@@ -95,10 +106,10 @@ pb.collection('Question').update(id, {
 ### Stato React
 
 ```js
-const [data, setData]                     = useState([]);
-const [loading, setLoading]               = useState(true);
-const [error, setError]                   = useState('');
-const [globalFilter, setGlobalFilter]     = useState('');
+const [data, setData]                           = useState([]);
+const [loading, setLoading]                     = useState(true);
+const [error, setError]                         = useState('');
+const [globalFilter, setGlobalFilter]           = useState('');
 const [expandedSubjects,  setExpandedSubjects]  = useState(new Set()); // chiave: subject string
 const [expandedTopics,    setExpandedTopics]    = useState(new Set()); // chiave: `${subject}::${topic}`
 const [expandedQuestions, setExpandedQuestions] = useState(new Set()); // chiave: question id
@@ -106,10 +117,11 @@ const [selectedIds,       setSelectedIds]       = useState(new Set()); // chiave
 const [showDeleteModal, setShowDeleteModal]     = useState(false);
 const [deleting, setDeleting]                   = useState(false);
 const [showAddModal, setShowAddModal]           = useState(false);
-const [openMenuId, setOpenMenuId]               = useState(null);   // id domanda con menu aperto
-const [editQuestion, setEditQuestion]           = useState(null);   // record domanda in modifica
-const [page, setPage]                     = useState(0);
-const [pageSize, setPageSize]             = useState(10);
+const [openMenuId, setOpenMenuId]               = useState(null);      // id domanda con menu aperto
+const [editQuestion, setEditQuestion]           = useState(null);      // record domanda in modifica
+const [classifyingId, setClassifyingId]         = useState(null);      // id domanda in classificazione Bloom
+const [page, setPage]                           = useState(0);
+const [pageSize, setPageSize]                   = useState(10);
 ```
 
 ### Selezione e cancellazione
@@ -133,10 +145,63 @@ const [pageSize, setPageSize]             = useState(10);
 
 ---
 
-## Palette colori e stile
+## Classificazione Bloom — Council di modelli AI
+
+La funzione `classifyBloomCouncil(q, apiKey)` in `src/lib/classifyBloom.js` classifica automaticamente il livello Bloom di una domanda tramite il voto a maggioranza di 3 modelli AI distinti.
+
+### Modelli nel council
 
 ```js
-const C = {
+const COUNCIL_MODELS = [
+  "google/gemini-2.0-flash-001",
+  "meta-llama/llama-3.1-8b-instruct",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+];
+```
+
+### Flusso di classificazione
+
+1. Carica il template del prompt da `/prompts/req_prompt.txt` (fetch a runtime)
+2. Sostituisce i placeholder `{example_en}`, `{answers_en}`, `{example_question_type}` con i dati della domanda
+3. Invia la richiesta a tutti e 3 i modelli in parallelo (`Promise.allSettled`) tramite OpenRouter API
+4. Parla la risposta di ciascun modello: cerca il primo `BLOOM_CATEGORIES` che appare nel testo (case-insensitive)
+5. Calcola il vincitore per maggioranza dei voti validi
+6. Aggiorna il record PocketBase: `pb.collection('Question').update(q.id, { bloom_level: winner })`
+7. Restituisce `{ winner, modelVotes }` (ogni voto ha `model`, `vote`, `reply`)
+
+### API Key
+
+L'API key OpenRouter viene passata da Dashboard come `import.meta.env.VITE_OPENROUTER_API_KEY` (variabile d'ambiente Vite, nel file `.env`).
+
+### Stato durante la classificazione
+
+- `classifyingId` tiene traccia dell'id della domanda in corso di classificazione
+- Mentre `classifyingId === q.id`, la riga mostra `···` al posto del `BloomBadge`
+- Il pulsante "Classifica" nel menu è disabilitato (`opacity: 0.4`, `cursor: not-allowed`) finché una classificazione è in corso
+- Log in console: voti dei modelli (`console.table`) e vincitore (`console.log`)
+- In caso di errore: `alert("Classificazione fallita: " + err.message)`
+
+### Prompt template (`public/prompts/req_prompt.txt`)
+
+Il template è un prompt in inglese che:
+- Definisce la persona come esperto di pedagogia e tassonomia di Bloom (revisione Anderson & Krathwohl)
+- Elenca i 6 livelli con definizioni operative
+- Inietta la domanda (`{example_en}`), le opzioni (`{answers_en}`) e il tipo Moodle (`{example_question_type}`)
+- Richiede output nel formato esatto:
+  ```
+  BLOOM_LEVEL : [nome del livello]
+  RATIONALE: [motivazione]
+  ```
+
+---
+
+## Palette colori e stile
+
+Tutti i valori di stile sono esportati da `src/styles/theme.js` e importati nei componenti.
+
+```js
+// src/styles/theme.js
+export const C = {
   bg:          '#F5F0E8',
   surface:     '#FEFCF7',
   border:      '#DDD5C2',
@@ -145,6 +210,7 @@ const C = {
   expandBg:    '#F8F5EF',
   green:       '#2C3E2D',
   greenLight:  '#3A5C3C',
+  greenText:   '#D4E8D0',   // testo chiaro su sfondo verde
   greenAccent: '#A8C5A0',
   text:        '#1C2B1D',
   textMuted:   '#7A7060',
@@ -154,10 +220,10 @@ const C = {
   error:       { bg: '#F7EDE6', border: '#E8C8B8', text: '#8A3A1A' },
 };
 
-const font  = "'DM Sans', sans-serif";   // Google Fonts
-const serif = 'Lora, serif';             // Google Fonts
+export const font  = "'DM Sans', sans-serif";   // Google Fonts
+export const serif = 'Lora, serif';             // Google Fonts
 
-const BLOOM_STYLES = {
+export const BLOOM_STYLES = {
   remember:   { background: '#E6EEF6', color: '#2A5C8A' },
   understand: { background: '#E6F2ED', color: '#1F6B4E' },
   apply:      { background: '#EFF5E6', color: '#3F6B18' },
@@ -165,24 +231,37 @@ const BLOOM_STYLES = {
   evaluate:   { background: '#F7EDE6', color: '#8A3A1A' },
   create:     { background: '#F3E8F0', color: '#6A2860' },
 };
+
+export const BLOOM_LEVELS = ['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create'];
+export const BLOOM_LABELS = {
+  remember: 'Remember', understand: 'Understand', apply: 'Apply',
+  analyze: 'Analyze', evaluate: 'Evaluate', create: 'Create',
+};
 ```
 
 **Azioni distruttive:** `#8A3A1A` (testo), `#F7EDE6` (sfondo), `#E8C8B8` (bordo).
 
 ---
 
-## Componenti / helper presenti in Dashboard.jsx
+## Componenti
+
+### Componenti interni a `Dashboard.jsx`
 
 | Nome             | Tipo     | Descrizione                                                  |
 |------------------|----------|--------------------------------------------------------------|
-| `BloomBadge`        | componente | Badge colorato per il livello Bloom                                    |
-| `JsonItems`         | componente | Renderizza un array JSON come lista puntata                            |
-| `QuestionDetail`    | componente | `<tr>` con testo completo, opzioni e risposta corretta                 |
-| `IconBtn`           | componente | Bottone icona con bordo (usato nella paginazione)                      |
-| `SuggestInput`      | componente | Input testo + dropdown suggerimenti filtrati per sottostringa; chiude al click fuori (useRef + mousedown); props: `label`, `value`, `onChange`, `suggestions` |
-| `AddQuestionModal`  | componente | Modale creazione domanda; props: `data`, `onClose`, `onSaved`; gestisce validazione e chiamata `pb.collection('Question').create(...)` |
-| `EditQuestionModal` | componente | Modale modifica domanda; props: `question`, `data`, `onClose`, `onSaved`; pre-popola il form dal record, chiama `pb.collection('Question').update(id, ...)` |
-| `thStyle(w?)`       | funzione   | Restituisce lo stile inline per le celle `<th>`                        |
+| `BloomBadge`     | componente | Badge colorato per il livello Bloom; fallback grigio se livello non riconosciuto |
+| `JsonItems`      | componente | Renderizza un array JSON come lista puntata                  |
+| `QuestionDetail` | componente | `<tr>` con testo completo, opzioni e risposta corretta       |
+| `IconBtn`        | componente | Bottone icona con bordo (usato nella paginazione)            |
+| `thStyle(w?)`    | funzione   | Restituisce lo stile inline per le celle `<th>`              |
+
+### Componenti separati (`src/components/dashboard/`)
+
+| File                  | Props                                      | Descrizione                                                                                       |
+|-----------------------|--------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `SuggestInput.jsx`    | `label`, `value`, `onChange`, `suggestions` | Input testo + dropdown suggerimenti filtrati per sottostringa; chiude al click fuori (useRef + mousedown) |
+| `AddQuestionModal.jsx`| `data`, `onClose`, `onSaved`              | Modale creazione domanda; gestisce validazione e `pb.collection('Question').create(...)`          |
+| `EditQuestionModal.jsx`| `question`, `data`, `onClose`, `onSaved` | Modale modifica domanda; pre-popola il form dal record, chiama `pb.collection('Question').update(id, ...)` |
 
 ---
 
@@ -259,8 +338,12 @@ Quando modifichi la struttura della tabella tieni presente:
 ### Menu a 3 puntini per domanda (kebab menu)
 - Stato: `openMenuId` (id domanda con menu aperto) — un solo menu aperto alla volta
 - Chiusura: `mousedown` globale su `document` → `setOpenMenuId(null)`; il wrapper del menu usa `onMouseDown={e => e.stopPropagation()}` per non chiudersi al click interno
-- Voci: **Modifica** (`Pencil`) → `setEditQuestion(q)`, **Elimina** (`Trash2`) → `setSelectedIds(new Set([q.id])); setShowDeleteModal(true)`, **Classifica** (`Tag`) → placeholder no-op
+- Voci:
+  - **Modifica** (`Pencil`) → `setEditQuestion(q); setOpenMenuId(null)`
+  - **Elimina** (`Trash2`) → `setSelectedIds(new Set([q.id])); setShowDeleteModal(true); setOpenMenuId(null)`
+  - **Classifica** (`Tag`) → `handleClassify(q)` — avvia la classificazione Bloom asincrona
 - "Elimina" da menu riusa il modale di conferma bulk esistente con selezione singola
+- "Classifica" disabilitato se `classifyingId !== null` (una classificazione già in corso)
 
 ### `correct_answer` come stringa plain in `QuestionDetail`
 - Non usare `JsonItems` per `correct_answer`: è una stringa semplice, non un array
