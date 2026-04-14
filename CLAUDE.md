@@ -10,6 +10,7 @@
 | Icone    | lucide-react                        |
 | Stile    | Inline CSS (nessuna libreria UI)    |
 | AI       | OpenRouter API (`VITE_OPENROUTER_API_KEY`) |
+| PDF      | `pdfjs-dist` (estrazione testo lato browser) |
 
 ---
 
@@ -27,7 +28,10 @@ src/
       Dashboard.jsx            # Pagina principale (domande d'esame)
       AddQuestionModal.jsx     # Modale creazione domanda
       EditQuestionModal.jsx    # Modale modifica domanda
-      SuggestInput.jsx         # Input testo con dropdown suggerimenti
+      SuggestInput.jsx         # Input testo con dropdown suggerimenti (riutilizzato anche in documents/)
+    documents/
+      DocumentsPage.jsx        # Schermata documenti (struttura identica a Dashboard)
+      AddDocumentModal.jsx     # Modale upload documento con drag & drop
   styles/
     theme.js                   # Palette colori, font, BLOOM_STYLES, BLOOM_LEVELS, BLOOM_LABELS
   App.jsx                      # Router principale
@@ -40,6 +44,7 @@ public/
 **Route:**
 - `/login` → `Login`
 - `/` → `Dashboard` (protetta da `ProtectedRoute`)
+- `/documents` → `DocumentsPage` (protetta da `ProtectedRoute`)
 - `*` → redirect a `/`
 
 ---
@@ -59,8 +64,8 @@ public/
 
 **Operazioni PocketBase usate:**
 ```js
-// Caricamento
-pb.collection('Question').getFullList({ sort: '-created' })
+// Caricamento — filtrare sempre per owner
+pb.collection('Question').getFullList({ sort: '-created', filter: `owner = "${pb.authStore.model.id}"` })
 
 // Cancellazione
 pb.collection('Question').delete(id)
@@ -85,6 +90,46 @@ pb.collection('Question').update(id, {
 ```
 
 **Nota:** PocketBase JS SDK deserializza automaticamente i campi JSON (es. `options`) in oggetti/array JavaScript. Non serve `JSON.parse` sui record restituiti.
+
+---
+
+## PocketBase — Collection `Document`
+
+| Campo     | Tipo   | Note                                                                 |
+|-----------|--------|----------------------------------------------------------------------|
+| `id`      | string | ID univoco PocketBase                                                |
+| `title`   | string | Titolo leggibile del documento (mostrato nella lista al posto di `file`) |
+| `subject` | string | Materia                                                              |
+| `topic`   | string | Argomento                                                            |
+| `file`    | file   | File caricato (campo file singolo PocketBase)                        |
+| `owner`   | string | ID utente autenticato (relation → users)                             |
+
+**Operazioni PocketBase usate:**
+```js
+// Caricamento — filtrare sempre per owner
+pb.collection('Document').getFullList({ sort: '-created', filter: `owner = "${pb.authStore.model.id}"` })
+
+// Creazione (upload file — obbligatorio FormData)
+const formData = new FormData();
+formData.append('title', title.trim());   // titolo leggibile (opzionale)
+formData.append('subject', subject.trim());
+formData.append('topic', topic.trim());
+formData.append('file', fileObject);
+formData.append('owner', pb.authStore.model.id);
+await pb.collection('Document').create(formData);
+
+// Cancellazione
+await pb.collection('Document').delete(id);
+
+// URL file
+pb.files.getURL(record, record.file)
+```
+
+**Note:**
+- `record.file` è il nome del file con suffisso random PocketBase (es. `"doc_daq6zy.pdf"`) — non usarlo come label visibile
+- `record.title` è il nome leggibile da mostrare; fallback: `record.title || record.file`
+- Estensione: `record.file?.split('.').pop()?.toLowerCase() ?? ''`
+- Upload file richiede sempre `FormData`, non oggetto plain
 
 ---
 
@@ -260,8 +305,25 @@ export const BLOOM_LABELS = {
 | File                  | Props                                      | Descrizione                                                                                       |
 |-----------------------|--------------------------------------------|---------------------------------------------------------------------------------------------------|
 | `SuggestInput.jsx`    | `label`, `value`, `onChange`, `suggestions` | Input testo + dropdown suggerimenti filtrati per sottostringa; chiude al click fuori (useRef + mousedown) |
-| `AddQuestionModal.jsx`| `data`, `onClose`, `onSaved`              | Modale creazione domanda; gestisce validazione e `pb.collection('Question').create(...)`          |
+| `AddQuestionModal.jsx`| `data`, `onClose`, `onSaved`              | Modale creazione domanda; modalità **Manuale** (form standard) e **Genera da documento** (AI); tab switch nell'header |
 | `EditQuestionModal.jsx`| `question`, `data`, `onClose`, `onSaved` | Modale modifica domanda; pre-popola il form dal record, chiama `pb.collection('Question').update(id, ...)` |
+
+### Componenti separati (`src/components/documents/`)
+
+| File                   | Props                        | Descrizione                                                                              |
+|------------------------|------------------------------|------------------------------------------------------------------------------------------|
+| `DocumentsPage.jsx`    | —                            | Schermata documenti; struttura identica a Dashboard (3 livelli, paginazione, bulk delete) |
+| `AddDocumentModal.jsx` | `data`, `onClose`, `onSaved` | Modale upload file con drag & drop; usa `SuggestInput` da `dashboard/`                   |
+
+**Componenti interni a `DocumentsPage.jsx`:**
+- `TypeBadge({ ext })` — badge colorato per tipo file: `pdf` rosso, `docx/doc` blu, `txt` grigio-beige, altri neutri
+- `thStyle`, `IconBtn` — identici a Dashboard (pattern da replicare in nuove schermate)
+
+**Comportamento righe documento (livello 3) in `DocumentsPage`:**
+- Le righe documento NON sono espandibili (nessun `DocDetail`, nessun chevron)
+- Il titolo è un `<a href={pb.files.getURL(doc, doc.file)} target="_blank">` che apre il file direttamente
+- Label visibile: `doc.title || doc.file || '—'`
+- Il filtro di ricerca include `title`, `subject`, `topic`, `file`
 
 ---
 
@@ -324,6 +386,38 @@ Quando modifichi la struttura della tabella tieni presente:
 - Overlay chiudibile al click (se non `saving`); `e.stopPropagation()` sul contenuto
 - Larghezza: `min(600px, 90vw)`; body scrollabile con `overflowY: auto`
 
+### Validazione a due step con warning (campi opzionali)
+Pattern per campi che possono essere omessi ma richiedono conferma esplicita:
+```js
+const [warning, setWarning] = useState('');
+
+// In handleSubmit, dopo gli errori bloccanti:
+// Errore bloccante: argomento senza materia
+if (!subject && topic) { setFormError('Inserisci la materia...'); setWarning(''); return; }
+
+// Warning con conferma al secondo click
+const warnMsg = !subject && !topic ? 'Messaggio A' : subject && !topic ? 'Messaggio B' : '';
+if (warnMsg && warning !== warnMsg) { setWarning(warnMsg); setFormError(''); return; }
+
+// Altrimenti procedi con il salvataggio
+```
+- `setField` deve resettare anche `warning` oltre a `formError`
+- Warning visualizzato con stile ambra: `background:'#FBF2DC', border:'1px solid #D4B84A', color:'#7A5010'`
+- Messaggio suggerisce: "Premi nuovamente 'Salva' per confermare."
+- Regole subject/topic applicate in `AddQuestionModal` e `AddDocumentModal`
+
+### Auto-fill titolo da file selezionato
+Quando l'utente seleziona un file, pre-compilare il campo `title` se ancora vuoto:
+```js
+function handleFile(file) {
+  if (!file) return;
+  const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+  setForm(f => ({ ...f, file, title: f.title.trim() ? f.title : nameWithoutExt }));
+}
+```
+- Non sovrascrive un titolo già inserito manualmente
+- Applicato in `AddDocumentModal`
+
 ### Correct answer sincronizzata con options
 - Usare `useEffect` su `[form.options]` **solo in `AddQuestionModal`** (dove `correct_answer` parte vuoto):
   ```js
@@ -356,3 +450,127 @@ Quando modifichi la struttura della tabella tieni presente:
   data.filter(q => q.subject.trim().toLowerCase() === subj).map(q => q.topic.trim())
   ```
 - Se subject è vuota → array suggerimenti topic vuoto
+
+### Nav tabs nella topbar (navigazione tra schermate)
+- Usa `useNavigate` + `useLocation` da `react-router-dom`
+- Tab attiva: `location.pathname === '/path'` → `background: C.green, color: '#FFF', border: 'none'`
+- Tab inattiva: `background: 'transparent', color: C.textMuted, border: \`1px solid ${C.border}\``
+- Posizionata nella topbar tra logo+titolo e info utente
+- Pattern applicato in entrambe le schermate (Dashboard e DocumentsPage)
+
+### Modal con tab mode switch (es. Manuale / Genera)
+- Stato: `const [mode, setMode] = useState('manual')` — stringa enum
+- Tab nell'header del modale (sotto il titolo), stesso stile delle nav tab topbar
+- `isBusy` = OR di tutti gli stati async (`saving || generating || savingGenerated`) — usare per disabilitare overlay-close, X, tab switch, pulsanti Annulla
+- Body condizionale: `{mode === 'manual' && <> … </>}` / `{mode === 'generate' && <> … </> }`
+- Footer adattivo: pulsante primario cambia in base a `mode` e allo stato della generazione
+
+### Estrazione testo da PDF (pdfjs-dist)
+```js
+import * as pdfjsLib from 'pdfjs-dist';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url
+).href;
+
+async function extractTextFromPdf(url) {
+  const ab  = await fetch(url).then(r => r.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page    = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return text;
+}
+```
+- Usare in `handleGenerate` per `.pdf`; per `.txt` usare `response.text()`; altri formati → fallback metadati
+- Troncare a 4000 caratteri prima di passare al prompt: `docText.slice(0, 4000)`
+
+### Generazione domande AI da documento
+- Modello: `meta-llama/llama-3.1-8b-instruct` via OpenRouter
+- System message: `"Sei un esperto nella creazione di quiz educativi."`
+- Temperature: `0.5`
+- Prompt template (invariante):
+  ```
+  Crea un quiz di livello scuola superiore basato sul testo fornito.
+  Genera esattamente {N} domande in lingua ITALIANA.
+  Rispetta rigorosamente questo formato per ogni domanda:
+
+  > [Testo della domanda]
+  a) [Opzione A]
+  b) [Opzione B]
+  c) [Opzione C]
+  d) [Opzione D]
+  * Correct Answer: [Lettera, esempio: a)]
+
+  Testo: {testo_troncato_4000}
+  ```
+- Parsing risposta con `parseGeneratedQuestions(rawText)`:
+  - Split su `/\n(?=> )/` per separare i blocchi
+  - Risposta corretta: regex `/\* Correct Answer:\s*([a-d])\)?/i`
+  - Blocchi con meno di 6 righe vengono scartati
+
+### Salvataggio domande generate
+- Tutte le domande selezionate (1 o N) vengono salvate direttamente con `Promise.all` → `onSaved()`; nessun comportamento biforcato per singola domanda
+- `bloom_level` sempre `''` (classificare dopo con il council)
+- `subject` e `topic` sono portati dalla domanda stessa (`q.subject`, `q.topic`), non riletti dal documento al momento del salvataggio
+- Le domande generate vengono arricchite con `subject`/`topic` del documento sorgente **al momento del parsing**, non al salvataggio:
+  ```js
+  const withMeta = parsed.map(q => ({ ...q, subject: doc.subject.trim(), topic: doc.topic.trim() }));
+  ```
+- Struttura oggetto domanda generata: `{ content, options, correct_answer, subject, topic }`
+
+### Filtro owner obbligatorio su tutte le query
+- Ogni `getFullList` su `Question` e `Document` deve includere `filter: \`owner = "${pb.authStore.model.id}"\``
+- Applicato in: `Dashboard.jsx`, `DocumentsPage.jsx`, `AddQuestionModal.jsx` (caricamento documenti per generazione)
+- Garantisce che ogni utente veda solo i propri dati
+
+### Dropdown ricercabile inline (senza SuggestInput)
+Pattern per selezionare un record da una lista con ricerca testuale, quando serve tracciare anche l'`id` selezionato (diversamente da `SuggestInput` che gestisce solo stringhe):
+```js
+const [docSearch, setDocSearch]   = useState('');   // testo visibile
+const [selectedDocId, setSelectedDocId] = useState(''); // id del record selezionato
+const [showDocList, setShowDocList] = useState(false);
+const docSearchRef = useRef(null);
+
+// Click-outside
+useEffect(() => {
+  function handleMouseDown(e) {
+    if (docSearchRef.current && !docSearchRef.current.contains(e.target)) setShowDocList(false);
+  }
+  document.addEventListener('mousedown', handleMouseDown);
+  return () => document.removeEventListener('mousedown', handleMouseDown);
+}, []);
+```
+- Filtra per sottostringa case-insensitive sul label (`title || file`); se ricerca vuota → mostra tutto
+- `onMouseDown={e => e.preventDefault()}` sulle `<li>` per evitare blur prima del click
+- Nessuna pre-selezione automatica al caricamento — l'utente sceglie esplicitamente
+- Voce selezionata evidenziata con `color: C.green, fontWeight: 600, background: C.expandBg`
+
+### Inline editing di card in lista (es. domande generate)
+Pattern per editare un item di una lista direttamente nella card, senza modale separata:
+```js
+const [editingIdx, setEditingIdx] = useState(null);
+const [editForm, setEditForm]     = useState({});
+
+function openEdit(idx) {
+  setEditingIdx(idx);
+  setEditForm({ ...items[idx] });
+}
+function confirmEdit() {
+  setItems(prev => prev.map((item, i) => i === editingIdx ? { ...item, ...editForm } : item));
+  setEditingIdx(null);
+}
+```
+- La card alterna tra read view (con pulsante `Pencil`) e form inline (con pulsanti Annulla / Conferma con `Check`)
+- `onClick` sul wrapper della read view gestisce la selezione; `e.stopPropagation()` sul pulsante edit per non triggerare il click del wrapper
+- Il form inline include tutti i campi editabili del record (inclusi `subject`, `topic`)
+
+### File upload con drag & drop (AddDocumentModal)
+- Area drop: bordo `2px dashed C.border`; al drag-over → bordo `#5C7A5E`, sfondo `#EFF5E6`
+- Gestire `onDragOver` (preventDefault), `onDragLeave`, `onDrop` (legge `e.dataTransfer.files[0]`)
+- `<input type="file" hidden ref={fileInputRef}>` attivato da click sull'area o sul link "sfoglia"
+- Quando file selezionato: mostrare nome + icona + pulsante X per rimuovere
+- Upload obbligatoriamente via `FormData` (non oggetto plain): `formData.append('file', fileObject)`
+- Validazione: materia obbligatoria, file obbligatorio; errore inline con `C.error`

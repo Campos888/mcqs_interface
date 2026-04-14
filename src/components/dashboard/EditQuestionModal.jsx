@@ -23,6 +23,7 @@ export default function EditQuestionModal({ question, onClose, onSaved, data }) 
   });
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
+  const [warning, setWarning]     = useState('');
 
   const subjectSuggestions = useMemo(() => {
     const set = new Set(data.map(q => (q.subject || '').trim()).filter(Boolean));
@@ -43,7 +44,7 @@ export default function EditQuestionModal({ question, onClose, onSaved, data }) 
 
   const validOptions = form.options.filter(o => o.trim() !== '');
 
-  function setField(key, val) { setForm(f => ({ ...f, [key]: val })); setFormError(''); }
+  function setField(key, val) { setForm(f => ({ ...f, [key]: val })); setFormError(''); setWarning(''); }
   function setOption(idx, val) {
     setForm(f => { const options = [...f.options]; options[idx] = val; return { ...f, options }; });
     setFormError('');
@@ -54,18 +55,30 @@ export default function EditQuestionModal({ question, onClose, onSaved, data }) 
   }
 
   async function handleSubmit() {
+    const subject = form.subject.trim();
+    const topic   = form.topic.trim();
     const content = form.content.trim();
-    const opts = form.options.filter(o => o.trim() !== '');
-    if (!content) { setFormError('Il testo della domanda è obbligatorio.'); return; }
-    if (opts.length === 0) { setFormError("Aggiungi almeno un'opzione di risposta."); return; }
+    const opts    = form.options.filter(o => o.trim() !== '');
+
+    if (!content) { setFormError('Il testo della domanda è obbligatorio.'); setWarning(''); return; }
+    if (opts.length === 0) { setFormError("Aggiungi almeno un'opzione di risposta."); setWarning(''); return; }
     if (!form.correct_answer || !opts.includes(form.correct_answer)) {
-      setFormError('Seleziona una risposta corretta tra le opzioni.'); return;
+      setFormError('Seleziona una risposta corretta tra le opzioni.'); setWarning(''); return;
     }
-    setSaving(true); setFormError('');
+    if (!subject && topic) { setFormError('Inserisci la materia prima di specificare un argomento.'); setWarning(''); return; }
+
+    const warnMsg = !subject && !topic
+      ? 'Sicuro di voler salvare la domanda senza materia e senza argomento?'
+      : subject && !topic
+        ? 'Sicuro di voler salvare la domanda senza argomento?'
+        : '';
+    if (warnMsg && warning !== warnMsg) { setWarning(warnMsg); setFormError(''); return; }
+
+    setSaving(true); setFormError(''); setWarning('');
     try {
       await pb.collection('Question').update(question.id, {
-        subject:        form.subject.trim(),
-        topic:          form.topic.trim(),
+        subject,
+        topic,
         content,
         options:        opts,
         correct_answer: form.correct_answer,
@@ -146,6 +159,11 @@ export default function EditQuestionModal({ question, onClose, onSaved, data }) 
             </select>
           </div>
 
+          {warning && (
+            <div style={{ background: '#FBF2DC', border: '1px solid #D4B84A', color: '#7A5010', fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>
+              {warning} Premi nuovamente "Salva modifiche" per confermare.
+            </div>
+          )}
           {formError && (
             <div style={{ background: C.error.bg, border: `1px solid ${C.error.border}`, color: C.error.text, fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>
               {formError}
