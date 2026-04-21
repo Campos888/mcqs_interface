@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, LogOut, Search, RefreshCw, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, Trash2, Plus, MoreVertical, Pencil, Tag } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, Trash2, Plus, MoreVertical, Pencil, Tag } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { classifyBloomCouncil } from '../../lib/classifyBloom';
 import { C, BLOOM_STYLES, font, serif } from '../../styles/theme';
@@ -277,6 +277,19 @@ export default function Dashboard() {
               }}
             >
               <FileText size={13} /> Documenti
+            </button>
+            <button
+              onClick={() => navigate('/tests')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 12px',
+                background: location.pathname === '/tests' ? C.green : 'transparent',
+                color: location.pathname === '/tests' ? '#FFF' : C.textMuted,
+                border: location.pathname === '/tests' ? 'none' : `1px solid ${C.border}`,
+                borderRadius: 6, cursor: 'pointer', fontFamily: font, fontSize: 12, fontWeight: 500,
+              }}
+            >
+              <ClipboardList size={13} /> Test
             </button>
           </nav>
 

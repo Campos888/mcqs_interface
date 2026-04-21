@@ -32,6 +32,10 @@ src/
     documents/
       DocumentsPage.jsx        # Schermata documenti (struttura identica a Dashboard)
       AddDocumentModal.jsx     # Modale upload documento con drag & drop
+    tests/
+      TestsPage.jsx            # Schermata test (struttura identica a Dashboard/DocumentsPage)
+      AddTestModal.jsx         # Modale creazione test
+      EditTestModal.jsx        # Modale modifica test (inline add section, 3 tab)
   styles/
     theme.js                   # Palette colori, font, BLOOM_STYLES, BLOOM_LEVELS, BLOOM_LABELS
   App.jsx                      # Router principale
@@ -45,6 +49,7 @@ public/
 - `/login` → `Login`
 - `/` → `Dashboard` (protetta da `ProtectedRoute`)
 - `/documents` → `DocumentsPage` (protetta da `ProtectedRoute`)
+- `/tests` → `TestsPage` (protetta da `ProtectedRoute`)
 - `*` → redirect a `/`
 
 ---
@@ -90,6 +95,41 @@ pb.collection('Question').update(id, {
 ```
 
 **Nota:** PocketBase JS SDK deserializza automaticamente i campi JSON (es. `options`) in oggetti/array JavaScript. Non serve `JSON.parse` sui record restituiti.
+
+---
+
+## PocketBase — Collection `Test`
+
+| Campo         | Tipo              | Note                                                    |
+|---------------|-------------------|---------------------------------------------------------|
+| `id`          | string            | ID univoco PocketBase                                   |
+| `description` | string            | Nome/titolo del test                                    |
+| `subject`     | string            | Materia                                                 |
+| `topic`       | string            | Argomento                                               |
+| `questions`   | relation (multi)  | Relazione multipla verso `Question`; `maxSelect: 999`   |
+| `owner`       | string            | ID utente autenticato (relation → users)                |
+| `created`     | autodate          | `onCreate: true, onUpdate: false`                       |
+| `updated`     | autodate          | `onCreate: true, onUpdate: true`                        |
+
+**Operazioni PocketBase usate:**
+```js
+// Caricamento con espansione relazione
+pb.collection('Test').getFullList({ sort: '-created', filter: `owner = "${pb.authStore.model.id}"`, expand: 'questions' })
+
+// Creazione
+pb.collection('Test').create({ description, subject, topic, questions: [...selectedQIds], owner: pb.authStore.model.id })
+
+// Modifica
+pb.collection('Test').update(id, { description, subject, topic, questions: questions.map(q => q.id) })
+
+// Cancellazione
+pb.collection('Test').delete(id)
+```
+
+**Note critiche:**
+- **`maxSelect: 999`** obbligatorio per multi-relazione reale; con `maxSelect: 0` o `maxSelect: 1` PocketBase salva solo l'ultimo elemento inviato
+- **Campi autodate non sono aggiunti automaticamente in PocketBase v0.23+**: vanno creati esplicitamente con `type: "autodate"`, `onCreate`, `onUpdate`; senza di essi `sort: '-created'` restituisce 400
+- Record espanso: `test.expand?.questions` può essere `undefined` (nessuna domanda), oggetto singolo, o array → normalizzare sempre: `Array.isArray(x) ? x : x ? [x] : []`
 
 ---
 
@@ -308,6 +348,19 @@ export const BLOOM_LABELS = {
 | `AddQuestionModal.jsx`| `data`, `onClose`, `onSaved`              | Modale creazione domanda; modalità **Manuale** (form standard) e **Genera da documento** (AI); tab switch nell'header |
 | `EditQuestionModal.jsx`| `question`, `data`, `onClose`, `onSaved` | Modale modifica domanda; pre-popola il form dal record, chiama `pb.collection('Question').update(id, ...)` |
 
+### Componenti separati (`src/components/tests/`)
+
+| File              | Props                              | Descrizione                                                                                   |
+|-------------------|------------------------------------|-----------------------------------------------------------------------------------------------|
+| `TestsPage.jsx`   | —                                  | Schermata test; struttura identica a Dashboard (3 livelli, paginazione, bulk delete)          |
+| `AddTestModal.jsx`| `data`, `onClose`, `onSaved`       | Modale creazione test; selezione domande via checkbox con ricerca                             |
+| `EditTestModal.jsx`| `test`, `data`, `onClose`, `onSaved` | Modale modifica test; lista domande con rimozione + sezione inline "Aggiungi domanda" (3 tab) |
+
+**Comportamento righe test (livello 3) in `TestsPage`:**
+- Righe test sono espandibili: click apre il dettaglio con la lista delle domande del test
+- Expand set: `expandedTests` — chiave: test `id`
+- Domande nel dettaglio mostrano: contenuto (clamp 2 righe), subject/topic, BloomBadge, indicatore risposta corretta
+
 ### Componenti separati (`src/components/documents/`)
 
 | File                   | Props                        | Descrizione                                                                              |
@@ -456,7 +509,8 @@ function handleFile(file) {
 - Tab attiva: `location.pathname === '/path'` → `background: C.green, color: '#FFF', border: 'none'`
 - Tab inattiva: `background: 'transparent', color: C.textMuted, border: \`1px solid ${C.border}\``
 - Posizionata nella topbar tra logo+titolo e info utente
-- Pattern applicato in entrambe le schermate (Dashboard e DocumentsPage)
+- Pattern applicato in tutte e tre le schermate (Dashboard, DocumentsPage, TestsPage)
+- Tab attuali: **Domande** (`/`), **Documenti** (`/documents`), **Test** (`/tests`)
 
 ### Modal con tab mode switch (es. Manuale / Genera)
 - Stato: `const [mode, setMode] = useState('manual')` — stringa enum
@@ -566,6 +620,50 @@ function confirmEdit() {
 - La card alterna tra read view (con pulsante `Pencil`) e form inline (con pulsanti Annulla / Conferma con `Check`)
 - `onClick` sul wrapper della read view gestisce la selezione; `e.stopPropagation()` sul pulsante edit per non triggerare il click del wrapper
 - Il form inline include tutti i campi editabili del record (inclusi `subject`, `topic`)
+
+### Filtro owner obbligatorio su tutte le query (aggiornato)
+- Applicato anche a `Test` oltre che `Question` e `Document`
+
+### Sezione inline come alternativa alla sub-modale
+Pattern per funzionalità secondarie (es. "aggiungi elemento") da mostrare dentro la stessa modale senza aprirne un'altra:
+```js
+const [showAdd, setShowAdd] = useState(false);
+const [addMode, setAddMode] = useState('manual'); // enum tab
+
+function handleItemsAdded(newItems) {
+  setItems(prev => {
+    const ids = new Set(prev.map(i => i.id));
+    return [...prev, ...newItems.filter(i => !ids.has(i.id))]; // deduplication
+  });
+  setShowAdd(false);
+}
+```
+- `showAdd` alterna tra pulsante dashed "Aggiungi" e sezione bordered con tab bar + contenuto
+- La sezione inline ha header con tab (`manual` | `generate` | `mine`) + pulsante X di chiusura
+- Lo stato della lista principale è gestito in-memory (ottimistico); la persistenza avviene solo al salvataggio finale
+- Deduplica sempre per `id` prima di appendere nuovi elementi
+
+### Lazy-load dati accessori su richiesta
+Pattern per caricare dati necessari solo quando una sezione viene aperta (evita fetch inutili):
+```js
+const [items, setItems]   = useState([]);
+const [loading, setLoading] = useState(false);
+
+useEffect(() => {
+  if (!showSection) return;      // non caricare se la sezione è chiusa
+  if (items.length > 0) return;  // già caricati, non ricaricare
+  setLoading(true);
+  pb.collection('X').getFullList({ ... }).then(setItems).finally(() => setLoading(false));
+}, [showSection]);
+```
+- Applicato in `EditTestModal` per `allQuestions` (caricato solo quando `showAdd` diventa `true`)
+
+### `existingIds` per deduplicazione relazioni
+Quando una modale gestisce una lista di record correlati, mantenere un `Set` degli id già presenti per filtrare i candidati aggiungibili:
+```js
+const existingIds = useMemo(() => new Set(items.map(i => i.id)), [items]);
+// Uso in MineTab: available = allItems.filter(i => !existingIds.has(i.id))
+```
 
 ### File upload con drag & drop (AddDocumentModal)
 - Area drop: bordo `2px dashed C.border`; al drag-over → bordo `#5C7A5E`, sfondo `#EFF5E6`
