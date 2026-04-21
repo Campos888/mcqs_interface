@@ -248,7 +248,7 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
 
             {/* Lista domande correnti */}
             {questions.length === 0 ? (
-              <div style={{ padding: '14px', background: C.bg, borderRadius: 8, border: `1px dashed ${C.border}`, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
+              <div style={{ padding: '14px', background: C.surface, borderRadius: 8, border: `1px dashed ${C.border}`, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
                 Nessuna domanda nel test.
               </div>
             ) : (
