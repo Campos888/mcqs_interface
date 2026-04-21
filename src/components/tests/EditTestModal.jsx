@@ -65,6 +65,10 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
     return Array.isArray(test.expand.questions) ? test.expand.questions : [test.expand.questions];
   });
   const [removingIds, setRemovingIds] = useState(new Set());
+  const [editingQId, setEditingQId]   = useState(null);
+  const [editQForm, setEditQForm]     = useState({ subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '' });
+  const [savingEdit, setSavingEdit]   = useState(false);
+  const [editError, setEditError]     = useState('');
 
   // ── Sezione inline "Aggiungi domanda" ─────────────────────────────────────
   const [showAdd, setShowAdd]   = useState(false);
@@ -111,6 +115,42 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
   function removeSelected() {
     setQuestions(prev => prev.filter(q => !removingIds.has(q.id)));
     setRemovingIds(new Set());
+  }
+
+  function openEditQ(q) {
+    setEditingQId(q.id);
+    setEditQForm({
+      subject:        q.subject       || '',
+      topic:          q.topic         || '',
+      content:        q.content       || '',
+      options:        Array.isArray(q.options) ? [...q.options] : [''],
+      correct_answer: q.correct_answer || '',
+      bloom_level:    q.bloom_level   || '',
+    });
+    setEditError('');
+  }
+
+  async function confirmEditQ() {
+    const opts = editQForm.options.filter(o => o.trim() !== '');
+    if (!editQForm.content.trim() || !opts.length) { setEditError('Testo e opzioni sono obbligatori.'); return; }
+    const correct_answer = opts.includes(editQForm.correct_answer) ? editQForm.correct_answer : opts[0];
+    setSavingEdit(true); setEditError('');
+    try {
+      const updated = await pb.collection('Question').update(editingQId, {
+        subject:        editQForm.subject.trim(),
+        topic:          editQForm.topic.trim(),
+        content:        editQForm.content.trim(),
+        options:        opts,
+        correct_answer,
+        bloom_level:    editQForm.bloom_level,
+      });
+      setQuestions(prev => prev.map(q => q.id === editingQId ? { ...q, ...updated } : q));
+      setEditingQId(null);
+    } catch {
+      setEditError('Errore durante il salvataggio. Riprova.');
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   function handleQuestionsAdded(newQs) {
@@ -215,24 +255,60 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
                 {questions.map((q, i) => {
                   const isRemoving = removingIds.has(q.id);
+                  const isEditing  = editingQId === q.id;
                   return (
-                    <div key={q.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderBottom: i < questions.length - 1 ? `1px solid ${C.borderLight}` : 'none', background: isRemoving ? C.error.bg : C.surface, transition: 'background 0.15s' }}>
-                      <input type="checkbox" checked={isRemoving} onChange={() => toggleRemove(q.id)} title="Seleziona per rimuovere"
-                        style={{ marginTop: 3, accentColor: C.error.text, flexShrink: 0, cursor: 'pointer' }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, color: isRemoving ? C.error.text : C.text, lineHeight: 1.45, fontWeight: 500, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {q.content || '—'}
+                    <div key={q.id} style={{ borderBottom: isEditing ? `2px solid ${C.green}` : i < questions.length - 1 ? `1px solid ${C.borderLight}` : 'none' }}>
+                      {isEditing ? (
+                        <div style={{ padding: '12px 14px', background: C.surface, display: 'flex', flexDirection: 'column', gap: 8, borderTop: `2px solid ${C.green}`, borderLeft: `2px solid ${C.green}`, borderRight: `2px solid ${C.green}` }}>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ flex: 1 }}><label style={labelStyle}>Materia</label><input value={editQForm.subject} onChange={e => setEditQForm(f => ({ ...f, subject: e.target.value }))} style={inputStyle} /></div>
+                            <div style={{ flex: 1 }}><label style={labelStyle}>Argomento</label><input value={editQForm.topic} onChange={e => setEditQForm(f => ({ ...f, topic: e.target.value }))} style={inputStyle} /></div>
+                          </div>
+                          <div><label style={labelStyle}>Testo della domanda</label><textarea value={editQForm.content} onChange={e => setEditQForm(f => ({ ...f, content: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }} /></div>
+                          <div>
+                            <label style={labelStyle}>Opzioni</label>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {editQForm.options.map((opt, oi) => (
+                                <div key={oi} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                                  <input value={opt} onChange={e => setEditQForm(f => { const options = [...f.options]; options[oi] = e.target.value; return { ...f, options }; })} style={{ ...inputStyle, flex: 1 }} />
+                                  <button onClick={() => setEditQForm(f => { const options = f.options.filter((_, j) => j !== oi); return { ...f, options: options.length ? options : [''] }; })} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer', color: C.textMuted, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, flexShrink: 0 }}><X size={11} /></button>
+                                </div>
+                              ))}
+                              <button onClick={() => setEditQForm(f => ({ ...f, options: [...f.options, ''] }))} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, cursor: 'pointer', color: C.textMuted, fontFamily: font, fontSize: 11 }}><Plus size={10} /> Aggiungi</button>
+                            </div>
+                          </div>
+                          <div><label style={labelStyle}>Risposta corretta</label><select value={editQForm.correct_answer} onChange={e => setEditQForm(f => ({ ...f, correct_answer: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>{editQForm.options.filter(o => o.trim()).map((o, j) => <option key={j} value={o}>{o}</option>)}</select></div>
+                          <div><label style={labelStyle}>Livello Bloom</label><select value={editQForm.bloom_level} onChange={e => setEditQForm(f => ({ ...f, bloom_level: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}><option value="">— nessuno —</option>{BLOOM_LEVELS.map(l => <option key={l} value={l}>{BLOOM_LABELS[l]}</option>)}</select></div>
+                          {editError && <div style={{ background: C.error.bg, border: `1px solid ${C.error.border}`, color: C.error.text, fontSize: 12, borderRadius: 7, padding: '8px 12px' }}>{editError}</div>}
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => { setEditingQId(null); setEditError(''); }} disabled={savingEdit} style={{ padding: '4px 12px', background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, cursor: savingEdit ? 'not-allowed' : 'pointer', color: C.textMuted, fontFamily: font, fontSize: 12, opacity: savingEdit ? 0.5 : 1 }}>Annulla</button>
+                            <button onClick={confirmEditQ} disabled={savingEdit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px', background: C.green, border: 'none', borderRadius: 6, cursor: savingEdit ? 'not-allowed' : 'pointer', color: '#FFF', fontFamily: font, fontSize: 12, fontWeight: 500, opacity: savingEdit ? 0.8 : 1 }}>
+                              {savingEdit ? <span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> : <Check size={11} />}
+                              {savingEdit ? 'Salvataggio…' : 'Conferma'}
+                            </button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: C.textFaint, marginTop: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {[q.subject, q.topic].filter(Boolean).join(' · ')}
-                          {q.bloom_level && (
-                            <span style={{ ...(BLOOM_STYLES[q.bloom_level] || {}), padding: '1px 7px', borderRadius: 20, fontSize: 10, fontWeight: 500 }}>
-                              {BLOOM_LABELS[q.bloom_level]}
-                            </span>
-                          )}
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: isRemoving ? C.error.bg : C.surface, transition: 'background 0.15s' }}>
+                          <input type="checkbox" checked={isRemoving} onChange={() => toggleRemove(q.id)} title="Seleziona per rimuovere"
+                            style={{ marginTop: 3, accentColor: C.error.text, flexShrink: 0, cursor: 'pointer' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, color: isRemoving ? C.error.text : C.text, lineHeight: 1.45, fontWeight: 500, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                              {q.content || '—'}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {[q.subject, q.topic].filter(Boolean).join(' · ')}
+                              {q.bloom_level && (
+                                <span style={{ ...(BLOOM_STYLES[q.bloom_level] || {}), padding: '1px 7px', borderRadius: 20, fontSize: 10, fontWeight: 500 }}>
+                                  {BLOOM_LABELS[q.bloom_level]}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button onClick={() => openEditQ(q)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer', color: C.textMuted, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, flexShrink: 0, marginTop: 1 }}><Pencil size={11} /></button>
+                          <span style={{ fontSize: 11, color: C.textFaint, flexShrink: 0, marginTop: 2 }}>#{i + 1}</span>
                         </div>
-                      </div>
-                      <span style={{ fontSize: 11, color: C.textFaint, flexShrink: 0, marginTop: 2 }}>#{i + 1}</span>
+                      )}
                     </div>
                   );
                 })}
@@ -242,7 +318,7 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
             {/* Pulsante aggiungi / chiudi sezione */}
             {!showAdd ? (
               <button onClick={() => { setShowAdd(true); setAddMode('manual'); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 14px', background: 'none', border: `1px dashed ${C.greenAccent}`, borderRadius: 8, cursor: 'pointer', color: C.greenLight, fontFamily: font, fontSize: 13, fontWeight: 500, justifyContent: 'center' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 14px', background: 'none', border: `1px dashed ${C.greenAccent}`, borderRadius: 8, cursor: 'pointer', color: C.greenLight, fontFamily: font, fontSize: 13, fontWeight: 500, justifyContent: 'center', marginTop: 8 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#EFF5E6'}
                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
               >
@@ -250,7 +326,7 @@ export default function EditTestModal({ test, data, onClose, onSaved }) {
               </button>
             ) : (
               /* ── Sezione inline aggiungi ── */
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.bg }}>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.bg, marginTop: 8 }}>
 
                 {/* Header sezione inline */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${C.borderLight}`, background: C.headerBg }}>
@@ -459,7 +535,18 @@ function GenerateTab({ onAdd, inputStyle, labelStyle }) {
       if (ext === 'txt') { docText = await fetch(fileUrl).then(r => r.text()); }
       else if (ext === 'pdf') { docText = await extractTextFromPdf(fileUrl); }
       else { docText = [doc.title && `Titolo: ${doc.title}`, doc.subject && `Materia: ${doc.subject}`, doc.topic && `Argomento: ${doc.topic}`].filter(Boolean).join('\n'); }
-      const prompt = `Crea un quiz di livello scuola superiore basato sul testo fornito.\nGenera esattamente ${numQuestions} domande in lingua ITALIANA.\nRispetta rigorosamente questo formato per ogni domanda:\n\n> [Testo della domanda]\na) [Opzione A]\nb) [Opzione B]\nc) [Opzione C]\nd) [Opzione D]\n* Correct Answer: [Lettera, esempio: a)]\n\nTesto: ${docText.slice(0, 4000)}`;
+      const prompt = `Crea un quiz di livello scuola superiore basato sul testo fornito.
+    Genera esattamente ${numQuestions} domande in lingua ITALIANA.
+    Rispetta rigorosamente questo formato per ogni domanda:
+
+    > [Testo della domanda]
+    a) [Opzione A]
+    b) [Opzione B]
+    c) [Opzione C]
+    d) [Opzione D]
+    * Correct Answer: [Lettera, esempio: a)]
+
+    Testo: ${docText.slice(0, 4000)}`;
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -613,14 +700,35 @@ function GenerateTab({ onAdd, inputStyle, labelStyle }) {
 
 function MineTab({ allQuestions, loadingAll, existingIds, onAdd }) {
   const [qFilter, setQFilter]         = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('');
+  const [topicFilter, setTopicFilter]     = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const available = useMemo(() => allQuestions.filter(q => !existingIds.has(q.id)), [allQuestions, existingIds]);
+
+  const subjectOptions = useMemo(() => {
+    const set = new Set(available.map(q => (q.subject || '').trim()).filter(Boolean));
+    return [...set].sort();
+  }, [available]);
+
+  const topicOptions = useMemo(() => {
+    const base = subjectFilter
+      ? available.filter(q => (q.subject || '').trim() === subjectFilter)
+      : available;
+    const set = new Set(base.map(q => (q.topic || '').trim()).filter(Boolean));
+    return [...set].sort();
+  }, [available, subjectFilter]);
+
   const filtered  = useMemo(() => {
-    if (!qFilter.trim()) return available;
-    const q = qFilter.trim().toLowerCase();
-    return available.filter(q_ => q_.subject?.toLowerCase().includes(q) || q_.topic?.toLowerCase().includes(q) || q_.content?.toLowerCase().includes(q));
-  }, [available, qFilter]);
+    let result = available;
+    if (subjectFilter) result = result.filter(q => (q.subject || '').trim() === subjectFilter);
+    if (topicFilter)   result = result.filter(q => (q.topic   || '').trim() === topicFilter);
+    if (qFilter.trim()) {
+      const q = qFilter.trim().toLowerCase();
+      result = result.filter(q_ => q_.subject?.toLowerCase().includes(q) || q_.topic?.toLowerCase().includes(q) || q_.content?.toLowerCase().includes(q));
+    }
+    return result;
+  }, [available, subjectFilter, topicFilter, qFilter]);
 
   function toggle(id) { setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 
@@ -629,11 +737,23 @@ function MineTab({ allQuestions, loadingAll, existingIds, onAdd }) {
     if (selected.length) onAdd(selected);
   }
 
+  const selectStyle = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, color: C.text, fontFamily: font, outline: 'none', cursor: 'pointer', flex: 1 };
+
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setTopicFilter(''); }} style={selectStyle}>
+          <option value="">Tutte le materie</option>
+          {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={topicFilter} onChange={e => setTopicFilter(e.target.value)} disabled={!subjectFilter} style={{ ...selectStyle, opacity: subjectFilter ? 1 : 0.45, cursor: subjectFilter ? 'pointer' : 'not-allowed' }}>
+          <option value="">Tutti gli argomenti</option>
+          {topicOptions.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.textFaint }} />
-        <input value={qFilter} onChange={e => setQFilter(e.target.value)} placeholder="Filtra per materia, argomento, contenuto…"
+        <input value={qFilter} onChange={e => setQFilter(e.target.value)} placeholder="Cerca…"
           style={{ width: '100%', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 12px 7px 28px', fontSize: 12.5, color: C.text, fontFamily: font, outline: 'none', boxSizing: 'border-box' }}
           onFocus={e => e.target.style.borderColor = '#5C7A5E'} onBlur={e => e.target.style.borderColor = C.border}
         />

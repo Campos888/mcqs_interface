@@ -58,7 +58,15 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [warning, setWarning] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Refs per lo scroll ai campi obbligatori
+  const subjectRef      = useRef(null);
+  const topicRef        = useRef(null);
+  const contentRef      = useRef(null);
+  const optionsRef      = useRef(null);
+  const correctAnswRef  = useRef(null);
+  const scrollBodyRef   = useRef(null);
 
   // --- Mode ---
   const [mode, setMode] = useState('manual'); // 'manual' | 'generate'
@@ -127,14 +135,29 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
   }, [mode]);
 
   // --- Manual form handlers ---
-  function setField(key, val) { setForm(f => ({ ...f, [key]: val })); setFormError(''); setWarning(''); }
+  function setField(key, val) {
+    setForm(f => ({ ...f, [key]: val }));
+    setFormError('');
+    setFieldErrors(fe => { const n = { ...fe }; delete n[key]; return n; });
+  }
   function setOption(idx, val) {
     setForm(f => { const options = [...f.options]; options[idx] = val; return { ...f, options }; });
     setFormError('');
+    setFieldErrors(fe => { const n = { ...fe }; delete n.options; delete n.correct_answer; return n; });
   }
   function addOption() { setForm(f => ({ ...f, options: [...f.options, ''] })); }
   function removeOption(idx) {
     setForm(f => { const options = f.options.filter((_, i) => i !== idx); return { ...f, options: options.length ? options : [''] }; });
+  }
+
+  function scrollToRef(ref) {
+    if (!ref.current || !scrollBodyRef.current) return;
+    const container = scrollBodyRef.current;
+    const el = ref.current;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const offset = elRect.top - containerRect.top + container.scrollTop - 20;
+    container.scrollTo({ top: offset, behavior: 'smooth' });
   }
 
   async function handleSubmit() {
@@ -143,21 +166,31 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
     const content = form.content.trim();
     const opts    = form.options.filter(o => o.trim() !== '');
 
-    if (!content) { setFormError('Il testo della domanda è obbligatorio.'); setWarning(''); return; }
-    if (opts.length === 0) { setFormError("Aggiungi almeno un'opzione di risposta."); setWarning(''); return; }
-    if (!form.correct_answer || !opts.includes(form.correct_answer)) {
-      setFormError('Seleziona una risposta corretta tra le opzioni.'); setWarning(''); return;
+    const errors = {};
+    if (!subject)  errors.subject = 'La materia è obbligatoria.';
+    if (!topic)    errors.topic   = "L'argomento è obbligatorio.";
+    if (!content)  errors.content = 'Il testo della domanda è obbligatorio.';
+    if (opts.length === 0) errors.options = "Aggiungi almeno un'opzione di risposta.";
+    if (!form.correct_answer || !opts.includes(form.correct_answer))
+      errors.correct_answer = 'Seleziona una risposta corretta tra le opzioni.';
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      // Scroll al primo campo con errore
+      const order = [
+        { key: 'subject',       ref: subjectRef },
+        { key: 'topic',         ref: topicRef },
+        { key: 'content',       ref: contentRef },
+        { key: 'options',       ref: optionsRef },
+        { key: 'correct_answer',ref: correctAnswRef },
+      ];
+      const first = order.find(({ key }) => errors[key]);
+      if (first) scrollToRef(first.ref);
+      return;
     }
-    if (!subject && topic) { setFormError('Inserisci la materia prima di specificare un argomento.'); setWarning(''); return; }
 
-    const warnMsg = !subject && !topic
-      ? 'Sicuro di voler salvare la domanda senza materia e senza argomento?'
-      : subject && !topic
-        ? 'Sicuro di voler salvare la domanda senza argomento?'
-        : '';
-    if (warnMsg && warning !== warnMsg) { setWarning(warnMsg); setFormError(''); return; }
-
-    setSaving(true); setFormError(''); setWarning('');
+    setFieldErrors({});
+    setSaving(true); setFormError('');
     try {
       await pb.collection('Question').create({
         subject, topic, content,
@@ -333,7 +366,20 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
     borderRadius: '50%', animation: 'spin 0.7s linear infinite',
   };
 
+  const fieldErrorStyle = {
+    fontSize: 12, color: C.error.text, background: C.error.bg,
+    border: `1px solid ${C.error.border}`, borderRadius: 6,
+    padding: '5px 10px', marginBottom: 6, animation: 'errorSlideIn 0.25s ease',
+  };
+
   return (
+    <>
+    <style>{`
+      @keyframes errorSlideIn {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `}</style>
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(28,43,29,0.40)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
       onClick={() => { if (!isBusy) onClose(); }}
@@ -363,21 +409,27 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
         </div>
 
         {/* Body */}
-        <div style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div ref={scrollBodyRef} style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* ── MANUAL MODE ── */}
           {mode === 'manual' && (<>
-            <SuggestInput label="Materia" value={form.subject} onChange={v => setField('subject', v)} suggestions={subjectSuggestions} />
-            <SuggestInput label="Argomento" value={form.topic} onChange={v => setField('topic', v)} suggestions={topicSuggestions} />
-
-            <div>
-              <label style={labelStyle}>Testo della domanda *</label>
-              <textarea value={form.content} onChange={e => setField('content', e.target.value)} rows={4}
-                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
+            <div ref={subjectRef}>
+              <SuggestInput label="Materia *" value={form.subject} onChange={v => setField('subject', v)} suggestions={subjectSuggestions} error={fieldErrors.subject} />
+            </div>
+            <div ref={topicRef}>
+              <SuggestInput label="Argomento *" value={form.topic} onChange={v => setField('topic', v)} suggestions={topicSuggestions} error={fieldErrors.topic} />
             </div>
 
-            <div>
+            <div ref={contentRef}>
+              <label style={labelStyle}>Testo della domanda *</label>
+              {fieldErrors.content && <div style={fieldErrorStyle}>{fieldErrors.content}</div>}
+              <textarea value={form.content} onChange={e => setField('content', e.target.value)} rows={4}
+                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, borderColor: fieldErrors.content ? C.error.border : C.border }} />
+            </div>
+
+            <div ref={optionsRef}>
               <label style={labelStyle}>Opzioni di risposta *</label>
+              {fieldErrors.options && <div style={fieldErrorStyle}>{fieldErrors.options}</div>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {form.options.map((opt, idx) => (
                   <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -395,9 +447,11 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
               </div>
             </div>
 
-            <div>
+            <div ref={correctAnswRef}>
               <label style={labelStyle}>Risposta corretta *</label>
-              <select value={form.correct_answer} onChange={e => setField('correct_answer', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              {fieldErrors.correct_answer && <div style={fieldErrorStyle}>{fieldErrors.correct_answer}</div>}
+              <select value={form.correct_answer} onChange={e => setField('correct_answer', e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer', borderColor: fieldErrors.correct_answer ? C.error.border : C.border }}>
                 <option value="">— seleziona —</option>
                 {validOptions.map((o, i) => <option key={i} value={o}>{o}</option>)}
               </select>
@@ -411,11 +465,6 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
               </select>
             </div>
 
-            {warning && (
-              <div style={{ background: '#FBF2DC', border: '1px solid #D4B84A', color: '#7A5010', fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>
-                {warning} Premi nuovamente "Salva" per confermare.
-              </div>
-            )}
             {formError && (
               <div style={{ background: C.error.bg, border: `1px solid ${C.error.border}`, color: C.error.text, fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>
                 {formError}
@@ -700,5 +749,6 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
