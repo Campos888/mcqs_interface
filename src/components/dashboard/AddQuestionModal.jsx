@@ -1,15 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, X, Pencil, Check } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_LEVELS, BLOOM_LABELS } from '../../styles/theme';
 import SuggestInput from './SuggestInput';
-
-// Configura il worker PDF (necessario per pdfjs-dist in ambiente browser/Vite)
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).href;
 
 const initialForm = {
   subject:        '',
@@ -20,31 +13,24 @@ const initialForm = {
   bloom_level:    '',
 };
 
-// Estrae il testo da un PDF tramite pdfjs — equivalente a fitz in Python
-async function extractTextFromPdf(url) {
-  const response = await fetch(url);
-  const arrayBuffer = await response.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let text = '';
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const pageText = content.items.map(item => item.str).join(' ');
-    text += pageText + '\n';
-  }
-  return text;
-}
 
 function parseGeneratedQuestions(rawText) {
   const questions = [];
-  const blocks = rawText.trim().split(/\n(?=> )/);
+  // Split on any line starting with > (possibly with leading whitespace or numbering)
+  const blocks = rawText.trim().split(/\n(?=\s*(?:\d+[\.\)]\s*)?> )/);
   for (const block of blocks) {
     try {
       const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length < 6) continue;
-      const content = lines[0].replace(/^> /, '').trim();
-      const opts = [1, 2, 3, 4].map(i => lines[i].replace(/^[a-d]\) /, ''));
-      const ansMatch = block.match(/\* Correct Answer:\s*([a-d])\)?/i);
+      // First non-empty line is the question (strip leading >, numbering)
+      const content = lines[0].replace(/^\d+[\.\)]\s*/, '').replace(/^> /, '').trim();
+      if (!content) continue;
+      // Find option lines (a-d)
+      const optLines = lines.filter(l => /^[a-d]\)/i.test(l));
+      if (optLines.length < 2) continue;
+      const opts = optLines.map(l => l.replace(/^[a-d]\)\s*/i, '').trim());
+      // Find correct answer
+      const ansMatch = block.match(/[*\-]?\s*Correct Answer[:\s]+([a-d])\)?/i);
       const ansLetter = ansMatch ? ansMatch[1].toLowerCase() : 'a';
       const correct_answer = opts[['a', 'b', 'c', 'd'].indexOf(ansLetter)] || opts[0];
       questions.push({ content, options: opts, correct_answer });
@@ -218,36 +204,28 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
     setSelectedGenIdx(new Set());
 
     try {
-      const fileUrl = pb.files.getURL(doc, doc.file);
-      const ext = (doc.file || '').split('.').pop().toLowerCase();
+      const docText = (doc.text || '').trim();
 
-      let docText = '';
-      if (ext === 'txt') {
-        const res = await fetch(fileUrl);
-        docText = await res.text();
-      } else if (ext === 'pdf') {
-        docText = await extractTextFromPdf(fileUrl);
-      } else {
-        // Formato non supportato per estrazione testo: usa i metadati come fallback
-        docText = [
-          doc.title   ? `Titolo: ${doc.title}`     : '',
-          doc.subject ? `Materia: ${doc.subject}`  : '',
-          doc.topic   ? `Argomento: ${doc.topic}`  : '',
-        ].filter(Boolean).join('\n');
+      if (docText.length < 80) {
+        setGenError('Il documento non contiene testo estraibile. Ricaricalo per eseguire l\'OCR automatico.');
+        setGenerating(false);
+        return;
       }
 
-      const prompt = `Crea un quiz di livello scuola superiore basato sul testo fornito.
-    Genera esattamente ${numQuestions} domande in lingua ITALIANA.
-    Rispetta rigorosamente questo formato per ogni domanda:
-
-    > [Testo della domanda]
-    a) [Opzione A]
-    b) [Opzione B]
-    c) [Opzione C]
-    d) [Opzione D]
-    * Correct Answer: [Lettera, esempio: a)]
-
-    Testo: ${docText.slice(0, 4000)}`;
+      const prompt = [
+        `Crea un quiz di livello scuola superiore basato sul testo fornito.`,
+        `Genera esattamente ${numQuestions} domande in lingua ITALIANA.`,
+        `Rispetta rigorosamente questo formato per ogni domanda:`,
+        ``,
+        `> [Testo della domanda]`,
+        `a) [Opzione A]`,
+        `b) [Opzione B]`,
+        `c) [Opzione C]`,
+        `d) [Opzione D]`,
+        `* Correct Answer: [Lettera, esempio: a)]`,
+        ``,
+        `Testo: ${docText.slice(0, 4000)}`,
+      ].join('\n');
 
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {

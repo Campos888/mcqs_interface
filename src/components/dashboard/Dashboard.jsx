@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, Trash2, Plus, MoreVertical, Pencil, Tag } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, Trash2, Plus, MoreVertical, Pencil, Tag, ClipboardCheck } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { classifyBloomCouncil } from '../../lib/classifyBloom';
 import { C, BLOOM_STYLES, font, serif } from '../../styles/theme';
@@ -90,14 +90,6 @@ function QuestionDetail({ question }) {
   );
 }
 
-function IconBtn({ onClick, disabled, title, children }) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={title}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', color: disabled ? C.dot : C.textMuted, opacity: disabled ? 0.4 : 1 }}>
-      {children}
-    </button>
-  );
-}
 
 // ── Componente principale ─────────────────────────────────────────────────────
 
@@ -116,8 +108,6 @@ export default function Dashboard() {
   const [openMenuId, setOpenMenuId]               = useState(null);
   const [editQuestion, setEditQuestion]           = useState(null);
   const [classifyingId, setClassifyingId]         = useState(null);
-  const [page, setPage]                           = useState(0);
-  const [pageSize, setPageSize]                   = useState(10);
   const navigate = useNavigate();
   const location = useLocation();
   const user = pb.authStore.model;
@@ -160,7 +150,6 @@ export default function Dashboard() {
   }
 
   useEffect(() => { loadQuestions(); }, []);
-  useEffect(() => { setPage(0); }, [globalFilter]);
   useEffect(() => {
     function closeMenu() { setOpenMenuId(null); }
     document.addEventListener('mousedown', closeMenu);
@@ -196,9 +185,6 @@ export default function Dashboard() {
   }, [filteredQuestions]);
 
   const totalGroups = groupedData.length;
-  const pageCount   = Math.max(1, Math.ceil(totalGroups / pageSize));
-  const safePageIdx = Math.min(page, pageCount - 1);
-  const pagedGroups = groupedData.slice(safePageIdx * pageSize, (safePageIdx + 1) * pageSize);
 
   function toggleSubject(subject) {
     setExpandedSubjects(prev => { const next = new Set(prev); next.has(subject) ? next.delete(subject) : next.add(subject); return next; });
@@ -332,14 +318,6 @@ export default function Dashboard() {
               />
             </div>
 
-            <select
-              value={pageSize}
-              onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: C.textMuted, fontFamily: font, cursor: 'pointer', outline: 'none' }}
-            >
-              {[10, 20, 50].map(n => <option key={n} value={n}>{n} per pagina</option>)}
-            </select>
-
             <button onClick={loadQuestions} title="Aggiorna"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'pointer', color: C.textMuted }}>
               <RefreshCw size={14} />
@@ -351,11 +329,21 @@ export default function Dashboard() {
             </button>
 
             {selectedIds.size > 0 && (
-              <button onClick={() => setShowDeleteModal(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: C.error.bg, border: `1px solid ${C.error.border}`, borderRadius: 8, cursor: 'pointer', color: C.error.text, fontFamily: font, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                <Trash2 size={14} />
-                Elimina {selectedIds.size} {selectedIds.size === 1 ? 'domanda' : 'domande'}
-              </button>
+              <>
+                <button onClick={() => {
+                  const selected = data.filter(q => selectedIds.has(q.id));
+                  navigate('/tests', { state: { preselectedQuestions: selected } });
+                }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#E6EEF6', border: '1px solid #B8CDE0', borderRadius: 8, cursor: 'pointer', color: '#2A5C8A', fontFamily: font, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  <ClipboardCheck size={14} />
+                  Crea test
+                </button>
+                <button onClick={() => setShowDeleteModal(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: C.error.bg, border: `1px solid ${C.error.border}`, borderRadius: 8, cursor: 'pointer', color: C.error.text, fontFamily: font, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  <Trash2 size={14} />
+                  Elimina {selectedIds.size} {selectedIds.size === 1 ? 'domanda' : 'domande'}
+                </button>
+              </>
             )}
           </div>
 
@@ -386,14 +374,14 @@ export default function Dashboard() {
                         Caricamento…
                       </td>
                     </tr>
-                  ) : pagedGroups.length === 0 ? (
+                  ) : groupedData.length === 0 ? (
                     <tr>
                       <td colSpan={3} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
                         Nessuna domanda trovata.
                       </td>
                     </tr>
                   ) : (
-                    pagedGroups.flatMap(({ subject, topics }, gi) => {
+                    groupedData.flatMap(({ subject, topics }, gi) => {
                       const isSubjectExpanded = expandedSubjects.has(subject);
                       const isEvenGroup = gi % 2 === 0;
                       const groupBg = isEvenGroup ? 'transparent' : '#FAF7F2';
@@ -558,20 +546,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ── Paginazione ── */}
-          {!loading && totalGroups > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: C.textFaint }}>
-                Pagina {safePageIdx + 1} di {pageCount} · {totalGroups} materie · {filteredQuestions.length} domande
-              </span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <IconBtn onClick={() => setPage(0)} disabled={safePageIdx === 0} title="Prima pagina"><ChevronsLeft size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePageIdx === 0} title="Pagina precedente"><ChevronLeft size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePageIdx >= pageCount - 1} title="Pagina successiva"><ChevronRight size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(pageCount - 1)} disabled={safePageIdx >= pageCount - 1} title="Ultima pagina"><ChevronsRight size={13} /></IconBtn>
-              </div>
-            </div>
-          )}
 
         </main>
       </div>

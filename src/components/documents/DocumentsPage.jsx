@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif } from '../../styles/theme';
 import AddDocumentModal from './AddDocumentModal';
@@ -43,16 +43,6 @@ function TypeBadge({ ext }) {
 }
 
 
-// ── Pulsante icona paginazione ────────────────────────────────────────────────
-
-function IconBtn({ onClick, disabled, title, children }) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={title}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', color: disabled ? C.dot : C.textMuted, opacity: disabled ? 0.4 : 1 }}>
-      {children}
-    </button>
-  );
-}
 
 // ── Componente principale ─────────────────────────────────────────────────────
 
@@ -69,8 +59,6 @@ export default function DocumentsPage() {
   const [showAddModal, setShowAddModal]         = useState(false);
   const [editDoc, setEditDoc]                   = useState(null);
   const [openMenuId, setOpenMenuId]             = useState(null);
-  const [page, setPage]                         = useState(0);
-  const [pageSize, setPageSize]                 = useState(10);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -114,7 +102,6 @@ export default function DocumentsPage() {
   }
 
   useEffect(() => { loadDocuments(); }, []);
-  useEffect(() => { setPage(0); }, [globalFilter]);
   useEffect(() => {
     function closeMenu() { setOpenMenuId(null); }
     document.addEventListener('mousedown', closeMenu);
@@ -150,9 +137,6 @@ export default function DocumentsPage() {
   }, [filtered]);
 
   const totalGroups = groupedData.length;
-  const pageCount   = Math.max(1, Math.ceil(totalGroups / pageSize));
-  const safePageIdx = Math.min(page, pageCount - 1);
-  const pagedGroups = groupedData.slice(safePageIdx * pageSize, (safePageIdx + 1) * pageSize);
 
   function toggleSubject(subject) {
     setExpandedSubjects(prev => { const next = new Set(prev); next.has(subject) ? next.delete(subject) : next.add(subject); return next; });
@@ -266,14 +250,6 @@ export default function DocumentsPage() {
               />
             </div>
 
-            <select
-              value={pageSize}
-              onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: C.textMuted, fontFamily: font, cursor: 'pointer', outline: 'none' }}
-            >
-              {[10, 20, 50].map(n => <option key={n} value={n}>{n} per pagina</option>)}
-            </select>
-
             <button onClick={loadDocuments} title="Aggiorna"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'pointer', color: C.textMuted }}>
               <RefreshCw size={14} />
@@ -320,14 +296,14 @@ export default function DocumentsPage() {
                         Caricamento…
                       </td>
                     </tr>
-                  ) : pagedGroups.length === 0 ? (
+                  ) : groupedData.length === 0 ? (
                     <tr>
                       <td colSpan={3} style={{ padding: '3rem', textAlign: 'center', color: C.textFaint, fontSize: 13 }}>
                         Nessun documento trovato.
                       </td>
                     </tr>
                   ) : (
-                    pagedGroups.flatMap(({ subject, topics }, gi) => {
+                    groupedData.flatMap(({ subject, topics }, gi) => {
                       const isSubjectExpanded = expandedSubjects.has(subject);
                       const groupBg = gi % 2 === 0 ? 'transparent' : '#FAF7F2';
 
@@ -479,20 +455,6 @@ export default function DocumentsPage() {
             </div>
           </div>
 
-          {/* ── Paginazione ── */}
-          {!loading && totalGroups > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: C.textFaint }}>
-                Pagina {safePageIdx + 1} di {pageCount} · {totalGroups} materie · {filtered.length} documenti
-              </span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <IconBtn onClick={() => setPage(0)} disabled={safePageIdx === 0} title="Prima pagina"><ChevronsLeft size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePageIdx === 0} title="Pagina precedente"><ChevronLeft size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePageIdx >= pageCount - 1} title="Pagina successiva"><ChevronRight size={13} /></IconBtn>
-                <IconBtn onClick={() => setPage(pageCount - 1)} disabled={safePageIdx >= pageCount - 1} title="Ultima pagina"><ChevronsRight size={13} /></IconBtn>
-              </div>
-            </div>
-          )}
 
         </main>
       </div>

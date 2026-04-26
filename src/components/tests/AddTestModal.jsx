@@ -47,7 +47,7 @@ const initialManualForm = {
   subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '',
 };
 
-export default function AddTestModal({ data, onClose, onSaved }) {
+export default function AddTestModal({ data, onClose, onSaved, initialQuestions = [] }) {
 
   // ── Dati principali del test ──────────────────────────────────────────────
   const [form, setForm] = useState({ description: '', subject: '', topic: '' });
@@ -55,8 +55,8 @@ export default function AddTestModal({ data, onClose, onSaved }) {
   const [formError, setFormError] = useState('');
   const [warning, setWarning]     = useState('');
 
-  // ── Domande del test (oggetti completi) — inizialmente vuota ─────────────
-  const [questions, setQuestions] = useState([]);
+  // ── Domande del test (oggetti completi) ───────────────────────────────────
+  const [questions, setQuestions] = useState(initialQuestions);
   const [removingIds, setRemovingIds] = useState(new Set());
   const [editingQId, setEditingQId]   = useState(null);
   const [editQForm, setEditQForm]     = useState({ subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '' });
