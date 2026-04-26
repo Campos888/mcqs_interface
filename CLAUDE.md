@@ -96,6 +96,8 @@ pb.collection('Question').update(id, {
 
 **Nota:** PocketBase JS SDK deserializza automaticamente i campi JSON (es. `options`) in oggetti/array JavaScript. Non serve `JSON.parse` sui record restituiti.
 
+**IMPORTANTE — `subject` è una stringa plain:** NON convertire `subject` in una relation verso una collection separata. Rimane un campo stringa in tutte le collection (`Question`, `Test`, `Document`). I suggerimenti materia si derivano dai record esistenti, non da una collection dedicata.
+
 ---
 
 ## PocketBase — Collection `Test`
@@ -205,8 +207,6 @@ const [showAddModal, setShowAddModal]           = useState(false);
 const [openMenuId, setOpenMenuId]               = useState(null);      // id domanda con menu aperto
 const [editQuestion, setEditQuestion]           = useState(null);      // record domanda in modifica
 const [classifyingId, setClassifyingId]         = useState(null);      // id domanda in classificazione Bloom
-const [page, setPage]                           = useState(0);
-const [pageSize, setPageSize]                   = useState(10);
 ```
 
 ### Selezione e cancellazione
@@ -221,10 +221,10 @@ const [pageSize, setPageSize]                   = useState(10);
   ```
 - Dopo la cancellazione: svuotare `selectedIds`, chiudere la modale, ricaricare i dati
 
-### Ricerca e paginazione
+### Ricerca
 
 - `globalFilter` filtra per `subject`, `topic`, `content`, `bloom_level`
-- La paginazione opera sulle materie (livello 1)
+- Tutti i gruppi vengono mostrati senza paginazione (`groupedData` usato direttamente nel render)
 - Il refresh (`RefreshCw`) ricarica i dati e svuota la selezione
 - Il pulsante `+ Aggiungi` (verde `C.green`, icona `Plus`) apre `AddQuestionModal`
 
@@ -337,7 +337,6 @@ export const BLOOM_LABELS = {
 | `BloomBadge`     | componente | Badge colorato per il livello Bloom; fallback grigio se livello non riconosciuto |
 | `JsonItems`      | componente | Renderizza un array JSON come lista puntata                  |
 | `QuestionDetail` | componente | `<tr>` con testo completo, opzioni e risposta corretta       |
-| `IconBtn`        | componente | Bottone icona con bordo (usato nella paginazione)            |
 | `thStyle(w?)`    | funzione   | Restituisce lo stile inline per le celle `<th>`              |
 
 ### Componenti separati (`src/components/dashboard/`)
@@ -352,7 +351,7 @@ export const BLOOM_LABELS = {
 
 | File              | Props                              | Descrizione                                                                                   |
 |-------------------|------------------------------------|-----------------------------------------------------------------------------------------------|
-| `TestsPage.jsx`   | —                                  | Schermata test; struttura identica a Dashboard (3 livelli, paginazione, bulk delete)          |
+| `TestsPage.jsx`   | —                                  | Schermata test; struttura identica a Dashboard (3 livelli, bulk delete, no paginazione)       |
 | `AddTestModal.jsx`| `data`, `onClose`, `onSaved`       | Modale creazione test; selezione domande via checkbox con ricerca                             |
 | `EditTestModal.jsx`| `test`, `data`, `onClose`, `onSaved` | Modale modifica test; lista domande con rimozione + sezione inline "Aggiungi domanda" (3 tab) |
 
@@ -370,7 +369,7 @@ export const BLOOM_LABELS = {
 
 **Componenti interni a `DocumentsPage.jsx`:**
 - `TypeBadge({ ext })` — badge colorato per tipo file: `pdf` rosso, `docx/doc` blu, `txt` grigio-beige, altri neutri
-- `thStyle`, `IconBtn` — identici a Dashboard (pattern da replicare in nuove schermate)
+- `thStyle` — identico a Dashboard (pattern da replicare in nuove schermate)
 
 **Comportamento righe documento (livello 3) in `DocumentsPage`:**
 - Le righe documento NON sono espandibili (nessun `DocDetail`, nessun chevron)
@@ -386,7 +385,7 @@ export const BLOOM_LABELS = {
 
 Quando modifichi la struttura della tabella tieni presente:
 - Lo stato `expandedSubjects` / `expandedTopics` usa chiavi stringa; se aggiungi un livello, scegli una chiave composita univoca (es. `subject::topic::subtopic`)
-- La paginazione è sulle materie (`groupedData.length`); se sposti il livello di paginazione, aggiorna `totalGroups` e `pagedGroups`
+- Tutti i gruppi vengono renderizzati direttamente da `groupedData` senza paginazione
 - I campi del record PocketBase si leggono direttamente da `q.nomeCampo`
 
 ### Normalizzazione chiavi di raggruppamento
@@ -561,9 +560,10 @@ async function extractTextFromPdf(url) {
   Testo: {testo_troncato_4000}
   ```
 - Parsing risposta con `parseGeneratedQuestions(rawText)`:
-  - Split su `/\n(?=> )/` per separare i blocchi
-  - Risposta corretta: regex `/\* Correct Answer:\s*([a-d])\)?/i`
-  - Blocchi con meno di 6 righe vengono scartati
+  - Split su `/\n(?=\s*(?:\d+[\.\)]\s*)?> )/` per separare i blocchi (gestisce numerazione opzionale)
+  - Opzioni: righe che matchano `/^[a-d]\)/i`; testo estratto rimuovendo il prefisso
+  - Risposta corretta: regex `/[*\-]?\s*Correct Answer[:\s]+([a-d])\)?/i`
+  - Blocchi con meno di 2 opzioni o testo domanda vuoto vengono scartati
 
 ### Salvataggio domande generate
 - Tutte le domande selezionate (1 o N) vengono salvate direttamente con `Promise.all` → `onSaved()`; nessun comportamento biforcato per singola domanda
