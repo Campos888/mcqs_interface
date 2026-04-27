@@ -35,8 +35,7 @@ src/
       AddDocumentModal.jsx     # Modale upload documento con drag & drop
     tests/
       TestsPage.jsx            # Schermata test (struttura identica a Dashboard/DocumentsPage)
-      AddTestModal.jsx         # Modale creazione test
-      EditTestModal.jsx        # Modale modifica test (inline add section, 3 tab)
+      TestModal.jsx            # Modale unica creazione/modifica test (inline add section, 3 tab, drag & drop riordino)
   styles/
     theme.js                   # Palette colori, font, BLOOM_STYLES, BLOOM_LEVELS, BLOOM_LABELS
   App.jsx                      # Router principale
@@ -355,8 +354,7 @@ export const BLOOM_LABELS = {
 | File              | Props                              | Descrizione                                                                                   |
 |-------------------|------------------------------------|-----------------------------------------------------------------------------------------------|
 | `TestsPage.jsx`   | —                                  | Schermata test; struttura identica a Dashboard (3 livelli, bulk delete, no paginazione)       |
-| `AddTestModal.jsx`| `data`, `onClose`, `onSaved`       | Modale creazione test; selezione domande via checkbox con ricerca                             |
-| `EditTestModal.jsx`| `test`, `data`, `onClose`, `onSaved` | Modale modifica test; lista domande con rimozione + sezione inline "Aggiungi domanda" (3 tab) |
+| `TestModal.jsx`   | `test?`, `data`, `onClose`, `onSaved`, `initialQuestions?` | Modale unica creazione/modifica test; `isEdit = test !== null`; lista domande riordinabile via drag & drop + sezione inline "Aggiungi domanda" (3 tab) |
 
 **Comportamento righe test (livello 3) in `TestsPage`:**
 - Righe test sono espandibili: click apre il dettaglio con la lista delle domande del test
@@ -529,7 +527,7 @@ function handleFile(file) {
   - `.txt` → `file.text()`
   - `.pdf` → `pdfjs-dist`; se testo `< 80 chars` (PDF scansionato) → fallback Tesseract OCR (`ita+eng`)
   - altri formati → stringa vuota
-- Nei modali di generazione (`AddQuestionModal`, `AddTestModal`, `EditTestModal`, `AddQuestionToTestModal`):
+- Nei modali di generazione (`AddQuestionModal`, `TestModal`):
   ```js
   const docText = (doc.text || '').trim();
   ```
@@ -653,7 +651,7 @@ useEffect(() => {
   pb.collection('X').getFullList({ ... }).then(setItems).finally(() => setLoading(false));
 }, [showSection]);
 ```
-- Applicato in `EditTestModal` per `allQuestions` (caricato solo quando `showAdd` diventa `true`)
+- Applicato in `TestModal` per `allQuestions` (caricato solo quando `showAdd` diventa `true`)
 
 ### `existingIds` per deduplicazione relazioni
 Quando una modale gestisce una lista di record correlati, mantenere un `Set` degli id già presenti per filtrare i candidati aggiungibili:
@@ -661,6 +659,42 @@ Quando una modale gestisce una lista di record correlati, mantenere un `Set` deg
 const existingIds = useMemo(() => new Set(items.map(i => i.id)), [items]);
 // Uso in MineTab: available = allItems.filter(i => !existingIds.has(i.id))
 ```
+
+### Drag & drop riordino lista (HTML5 nativo)
+Pattern per riordinare una lista di item via trascinamento senza librerie esterne:
+```js
+const [dragIdx, setDragIdx]         = useState(null);
+const [dragOverIdx, setDragOverIdx] = useState(null);
+
+function handleDragStart(e, idx) { setDragIdx(idx); e.dataTransfer.effectAllowed = 'move'; }
+function handleDragOver(e, idx)  { e.preventDefault(); if (idx !== dragIdx) setDragOverIdx(idx); }
+function handleDrop(e, idx) {
+  e.preventDefault();
+  if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
+  setItems(prev => { const next = [...prev]; const [m] = next.splice(dragIdx, 1); next.splice(idx, 0, m); return next; });
+  setDragIdx(null); setDragOverIdx(null);
+}
+function handleDragEnd() { setDragIdx(null); setDragOverIdx(null); }
+```
+- Ogni riga: `draggable={true}` + i 4 handler sopra
+- Feedback visivo: `opacity: 0.4` sull'item trascinato; `borderTop: '2px solid C.green'` sull'item di destinazione
+- Aggiungere icona `GripVertical` (lucide-react) come handle visivo sul lato sinistro della riga
+- La checkbox deve avere `onMouseDown={e => e.stopPropagation()}` per non interferire col drag
+- L'ordine aggiornato in-memory viene persistito al salvataggio finale (ottimistico)
+- Applicato in `TestModal` per riordinare le domande del test
+
+### Modale unica creazione/modifica (pattern `isEdit`)
+Quando add e edit condividono la stessa UI, usare una singola modale con prop opzionale:
+```js
+export default function XModal({ record = null, ...rest }) {
+  const isEdit = record !== null;
+  // form pre-popolato: record?.field || ''
+  // submit: isEdit ? pb.update(record.id, data) : pb.create(data)
+}
+```
+- Label pulsante salva: `isEdit ? 'Salva modifiche' : 'Salva'`
+- Titolo header: `isEdit ? 'Modifica X' : 'Nuovo X'`
+- Applicato in `TestModal` (unifica `AddTestModal` + `EditTestModal`)
 
 ### File upload con drag & drop (AddDocumentModal)
 - Area drop: bordo `2px dashed C.border`; al drag-over → bordo `#5C7A5E`, sfondo `#EFF5E6`
