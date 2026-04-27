@@ -10,7 +10,7 @@
 | Icone    | lucide-react                        |
 | Stile    | Inline CSS (nessuna libreria UI)    |
 | AI       | OpenRouter API (`VITE_OPENROUTER_API_KEY`) |
-| PDF      | `pdfjs-dist` (estrazione testo lato browser) |
+| PDF      | `pdfjs-dist` + `tesseract.js` (estrazione testo all'upload in `AddDocumentModal`) |
 
 ---
 
@@ -21,6 +21,7 @@ src/
   lib/
     pocketbase.js              # Istanza PocketBase singleton
     classifyBloom.js           # Classificazione Bloom via council di 3 modelli AI
+    extractText.js             # Estrazione testo da file (pdfjs-dist + Tesseract OCR fallback)
   components/
     Login.jsx                  # Pagina di login
     ProtectedRoute.jsx         # Guard per rotte autenticate
@@ -144,6 +145,7 @@ pb.collection('Test').delete(id)
 | `subject` | string | Materia                                                              |
 | `topic`   | string | Argomento                                                            |
 | `file`    | file   | File caricato (campo file singolo PocketBase)                        |
+| `text`    | string | Testo estratto dal file all'upload (via `extractText.js`)            |
 | `owner`   | string | ID utente autenticato (relation → users)                             |
 
 **Operazioni PocketBase usate:**
@@ -153,10 +155,11 @@ pb.collection('Document').getFullList({ sort: '-created', filter: `owner = "${pb
 
 // Creazione (upload file — obbligatorio FormData)
 const formData = new FormData();
-formData.append('title', title.trim());   // titolo leggibile (opzionale)
+formData.append('title', title.trim());
 formData.append('subject', subject.trim());
 formData.append('topic', topic.trim());
 formData.append('file', fileObject);
+formData.append('text', extractedText);   // testo estratto da extractText(file)
 formData.append('owner', pb.authStore.model.id);
 await pb.collection('Document').create(formData);
 
@@ -518,26 +521,19 @@ function handleFile(file) {
 - Body condizionale: `{mode === 'manual' && <> … </>}` / `{mode === 'generate' && <> … </> }`
 - Footer adattivo: pulsante primario cambia in base a `mode` e allo stato della generazione
 
-### Estrazione testo da PDF (pdfjs-dist)
-```js
-import * as pdfjsLib from 'pdfjs-dist';
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url
-).href;
+### Estrazione testo dai documenti (architettura)
 
-async function extractTextFromPdf(url) {
-  const ab  = await fetch(url).then(r => r.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-  let text = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page    = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    text += content.items.map(item => item.str).join(' ') + '\n';
-  }
-  return text;
-}
-```
-- Usare in `handleGenerate` per `.pdf`; per `.txt` usare `response.text()`; altri formati → fallback metadati
+**Regola fondamentale:** l'estrazione avviene **una sola volta all'upload** in `AddDocumentModal`, viene salvata nel campo `doc.text` su PocketBase, e riletta da tutti i modali di generazione.
+
+- `src/lib/extractText.js` espone `extractText(file, onProgress)`:
+  - `.txt` → `file.text()`
+  - `.pdf` → `pdfjs-dist`; se testo `< 80 chars` (PDF scansionato) → fallback Tesseract OCR (`ita+eng`)
+  - altri formati → stringa vuota
+- Nei modali di generazione (`AddQuestionModal`, `AddTestModal`, `EditTestModal`, `AddQuestionToTestModal`):
+  ```js
+  const docText = (doc.text || '').trim();
+  ```
+- **Non importare** `pdfjs-dist` o `tesseract.js` nei modali di generazione — usare sempre `doc.text`
 - Troncare a 4000 caratteri prima di passare al prompt: `docText.slice(0, 4000)`
 
 ### Generazione domande AI da documento
@@ -560,10 +556,11 @@ async function extractTextFromPdf(url) {
   Testo: {testo_troncato_4000}
   ```
 - Parsing risposta con `parseGeneratedQuestions(rawText)`:
-  - Split su `/\n(?=\s*(?:\d+[\.\)]\s*)?> )/` per separare i blocchi (gestisce numerazione opzionale)
-  - Opzioni: righe che matchano `/^[a-d]\)/i`; testo estratto rimuovendo il prefisso
-  - Risposta corretta: regex `/[*\-]?\s*Correct Answer[:\s]+([a-d])\)?/i`
-  - Blocchi con meno di 2 opzioni o testo domanda vuoto vengono scartati
+  - Split su `/\n(?=> )/` per separare i blocchi domanda
+  - Testo domanda: `lines[0].replace(/^> /, '').trim()`
+  - Opzioni: lette per **posizione** `lines[1..4]`, rimuovendo prefisso `a) `…`d) `
+  - Risposta corretta: regex `/\* Correct Answer:\s*([a-d])\)?/i`
+  - Blocchi con `lines.length < 6` o testo vuoto vengono scartati
 
 ### Salvataggio domande generate
 - Tutte le domande selezionate (1 o N) vengono salvate direttamente con `Promise.all` → `onSaved()`; nessun comportamento biforcato per singola domanda
