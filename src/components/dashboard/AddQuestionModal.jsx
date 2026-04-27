@@ -16,21 +16,15 @@ const initialForm = {
 
 function parseGeneratedQuestions(rawText) {
   const questions = [];
-  // Split on any line starting with > (possibly with leading whitespace or numbering)
-  const blocks = rawText.trim().split(/\n(?=\s*(?:\d+[\.\)]\s*)?> )/);
+  const blocks = rawText.trim().split(/\n(?=> )/);
   for (const block of blocks) {
     try {
       const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length < 6) continue;
-      // First non-empty line is the question (strip leading >, numbering)
-      const content = lines[0].replace(/^\d+[\.\)]\s*/, '').replace(/^> /, '').trim();
+      const content = lines[0].replace(/^> /, '').trim();
       if (!content) continue;
-      // Find option lines (a-d)
-      const optLines = lines.filter(l => /^[a-d]\)/i.test(l));
-      if (optLines.length < 2) continue;
-      const opts = optLines.map(l => l.replace(/^[a-d]\)\s*/i, '').trim());
-      // Find correct answer
-      const ansMatch = block.match(/[*\-]?\s*Correct Answer[:\s]+([a-d])\)?/i);
+      const opts = [1, 2, 3, 4].map(i => lines[i].replace(/^[a-d]\) /, ''));
+      const ansMatch = block.match(/\* Correct Answer:\s*([a-d])\)?/i);
       const ansLetter = ansMatch ? ansMatch[1].toLowerCase() : 'a';
       const correct_answer = opts[['a', 'b', 'c', 'd'].indexOf(ansLetter)] || opts[0];
       questions.push({ content, options: opts, correct_answer });
@@ -112,10 +106,8 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
     if (mode !== 'generate') return;
     if (documents.length > 0) return;
     setLoadingDocs(true);
-    pb.collection('Document').getFullList({ sort: '-created' })
-      .then(docs => {
-        setDocuments(docs.filter(d => d.owner === pb.authStore.model.id));
-      })
+    pb.collection('Document').getFullList({ sort: '-created', filter: `owner = "${pb.authStore.model.id}"` })
+      .then(docs => setDocuments(docs))
       .catch(() => setGenError('Impossibile caricare i documenti.'))
       .finally(() => setLoadingDocs(false));
   }, [mode]);
@@ -206,26 +198,18 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
     try {
       const docText = (doc.text || '').trim();
 
-      if (docText.length < 80) {
-        setGenError('Il documento non contiene testo estraibile. Ricaricalo per eseguire l\'OCR automatico.');
-        setGenerating(false);
-        return;
-      }
+      const prompt = `Crea un quiz di livello scuola superiore basato sul testo fornito.
+    Genera esattamente ${numQuestions} domande in lingua ITALIANA.
+    Rispetta rigorosamente questo formato per ogni domanda:
 
-      const prompt = [
-        `Crea un quiz di livello scuola superiore basato sul testo fornito.`,
-        `Genera esattamente ${numQuestions} domande in lingua ITALIANA.`,
-        `Rispetta rigorosamente questo formato per ogni domanda:`,
-        ``,
-        `> [Testo della domanda]`,
-        `a) [Opzione A]`,
-        `b) [Opzione B]`,
-        `c) [Opzione C]`,
-        `d) [Opzione D]`,
-        `* Correct Answer: [Lettera, esempio: a)]`,
-        ``,
-        `Testo: ${docText.slice(0, 4000)}`,
-      ].join('\n');
+    > [Testo della domanda]
+    a) [Opzione A]
+    b) [Opzione B]
+    c) [Opzione C]
+    d) [Opzione D]
+    * Correct Answer: [Lettera, esempio: a)]
+
+    Testo: ${docText.slice(0, 4000)}`;
 
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {

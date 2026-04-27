@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, ClipboardList, LogOut, Search, RefreshCw, ChevronRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, ChevronRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_STYLES, BLOOM_LABELS } from '../../styles/theme';
 
@@ -231,11 +231,6 @@ export default function TestsPage() {
                 onBlur={e => e.target.style.borderColor = C.border}
               />
             </div>
-
-            <button onClick={loadTests} title="Aggiorna"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'pointer', color: C.textMuted }}>
-              <RefreshCw size={14} />
-            </button>
 
             <button onClick={() => setShowAddModal(true)} title="Crea test"
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: C.green, border: 'none', borderRadius: 8, cursor: 'pointer', color: '#FFF', fontFamily: font, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>

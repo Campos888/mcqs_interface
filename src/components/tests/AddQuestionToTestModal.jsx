@@ -1,29 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Pencil, Check, Search } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_LEVELS, BLOOM_LABELS, BLOOM_STYLES } from '../../styles/theme';
 import SuggestInput from '../dashboard/SuggestInput';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url
-).href;
-
 const initialManualForm = {
   subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '',
 };
-
-async function extractTextFromPdf(url) {
-  const ab  = await fetch(url).then(r => r.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-  let text = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page    = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    text += content.items.map(item => item.str).join(' ') + '\n';
-  }
-  return text;
-}
 
 function parseGeneratedQuestions(rawText) {
   const questions = [];
@@ -286,12 +269,7 @@ function GenerateTab({ onAdd, onClose }) {
     if (!doc) return;
     setGenerating(true); setGenError(''); setGeneratedQuestions([]); setSelectedGenIdx(new Set());
     try {
-      const fileUrl = pb.files.getURL(doc, doc.file);
-      const ext = (doc.file || '').split('.').pop().toLowerCase();
-      let docText = '';
-      if (ext === 'txt') { docText = await fetch(fileUrl).then(r => r.text()); }
-      else if (ext === 'pdf') { docText = await extractTextFromPdf(fileUrl); }
-      else { docText = [doc.title && `Titolo: ${doc.title}`, doc.subject && `Materia: ${doc.subject}`, doc.topic && `Argomento: ${doc.topic}`].filter(Boolean).join('\n'); }
+      const docText = (doc.text || '').trim();
 
       const prompt = `Crea un quiz di livello scuola superiore basato sul testo fornito.\nGenera esattamente ${numQuestions} domande in lingua ITALIANA.\nRispetta rigorosamente questo formato per ogni domanda:\n\n> [Testo della domanda]\na) [Opzione A]\nb) [Opzione B]\nc) [Opzione C]\nd) [Opzione D]\n* Correct Answer: [Lettera, esempio: a)]\n\nTesto: ${docText.slice(0, 4000)}`;
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
