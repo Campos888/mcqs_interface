@@ -13,8 +13,7 @@ function BloomBadge({ level }) {
     </span>
   );
 }
-import AddTestModal from './AddTestModal';
-import EditTestModal from './EditTestModal';
+import TestModal from './TestModal';
 
 // ── Helper stile th ───────────────────────────────────────────────────────────
 
@@ -497,7 +496,7 @@ export default function TestsPage() {
 
       {/* ── Modale modifica test ── */}
       {editTest && (
-        <EditTestModal
+        <TestModal
           test={editTest}
           data={data}
           onClose={() => setEditTest(null)}
@@ -507,7 +506,7 @@ export default function TestsPage() {
 
       {/* ── Modale aggiunta test ── */}
       {showAddModal && (
-        <AddTestModal
+        <TestModal
           data={data}
           onClose={() => { setShowAddModal(false); setPreselectedQuestions([]); }}
           onSaved={() => { setShowAddModal(false); setPreselectedQuestions([]); loadTests(); }}

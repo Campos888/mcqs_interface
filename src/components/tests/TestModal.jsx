@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Trash2, Plus, Pencil, Check, Search } from 'lucide-react';
+import { X, Trash2, Plus, Pencil, Check, Search, GripVertical } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_STYLES, BLOOM_LABELS, BLOOM_LEVELS } from '../../styles/theme';
 import SuggestInput from '../dashboard/SuggestInput';
@@ -30,21 +30,55 @@ const initialManualForm = {
   subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '',
 };
 
-export default function AddTestModal({ data, onClose, onSaved, initialQuestions = [] }) {
+export default function TestModal({ test = null, data, onClose, onSaved, initialQuestions = [] }) {
+  const isEdit = test !== null;
 
   // ── Dati principali del test ──────────────────────────────────────────────
-  const [form, setForm] = useState({ description: '', subject: '', topic: '' });
+  const [form, setForm] = useState({
+    description: test?.description || '',
+    subject:     test?.subject     || '',
+    topic:       test?.topic       || '',
+  });
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
   const [warning, setWarning]     = useState('');
 
   // ── Domande del test (oggetti completi) ───────────────────────────────────
-  const [questions, setQuestions] = useState(initialQuestions);
+  const [questions, setQuestions] = useState(() => {
+    if (!test?.expand?.questions) return initialQuestions;
+    return Array.isArray(test.expand.questions) ? test.expand.questions : [test.expand.questions];
+  });
   const [removingIds, setRemovingIds] = useState(new Set());
   const [editingQId, setEditingQId]   = useState(null);
   const [editQForm, setEditQForm]     = useState({ subject: '', topic: '', content: '', options: [''], correct_answer: '', bloom_level: '' });
   const [savingEdit, setSavingEdit]   = useState(false);
   const [editError, setEditError]     = useState('');
+
+  // ── Drag & drop riordino domande ──────────────────────────────────────────
+  const [dragIdx, setDragIdx]         = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+
+  function handleDragStart(e, idx) {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function handleDragOver(e, idx) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (idx !== dragIdx) setDragOverIdx(idx);
+  }
+  function handleDrop(e, idx) {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
+    setQuestions(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(dragIdx, 1);
+      next.splice(idx, 0, moved);
+      return next;
+    });
+    setDragIdx(null); setDragOverIdx(null);
+  }
+  function handleDragEnd() { setDragIdx(null); setDragOverIdx(null); }
 
   // ── Sezione inline "Aggiungi domanda" ─────────────────────────────────────
   const [showAdd, setShowAdd]   = useState(false);
@@ -145,6 +179,7 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
     if (!description) { setFormError('Inserisci un nome per il test.'); return; }
     if (!subject && topic) { setFormError('Inserisci la materia prima di specificare un argomento.'); setWarning(''); return; }
 
+    const saveLabel = isEdit ? 'Salva modifiche' : 'Salva';
     const warnMsg = !subject && !topic
       ? 'Sicuro di voler salvare il test senza materia e senza argomento?'
       : subject && !topic ? 'Sicuro di voler salvare il test senza argomento?' : '';
@@ -152,11 +187,17 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
 
     setSaving(true); setFormError(''); setWarning('');
     try {
-      await pb.collection('Test').create({
-        description, subject, topic,
-        questions: questions.map(q => q.id),
-        owner: pb.authStore.model.id,
-      });
+      if (isEdit) {
+        await pb.collection('Test').update(test.id, {
+          description, subject, topic, questions: questions.map(q => q.id),
+        });
+      } else {
+        await pb.collection('Test').create({
+          description, subject, topic,
+          questions: questions.map(q => q.id),
+          owner: pb.authStore.model.id,
+        });
+      }
       onSaved();
     } catch {
       setFormError('Errore durante il salvataggio. Riprova.');
@@ -175,6 +216,8 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
     border: active ? 'none' : `1px solid ${C.border}`,
   });
 
+  const saveLabel = isEdit ? 'Salva modifiche' : 'Salva';
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div
@@ -187,7 +230,9 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
       >
         {/* ── Header ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
-          <h2 style={{ fontFamily: serif, fontSize: 17, fontWeight: 500, color: C.text, margin: 0 }}>Nuovo test</h2>
+          <h2 style={{ fontFamily: serif, fontSize: 17, fontWeight: 500, color: C.text, margin: 0 }}>
+            {isEdit ? 'Modifica test' : 'Nuovo test'}
+          </h2>
           <button onClick={onClose} disabled={saving} style={{ background: 'none', border: 'none', cursor: saving ? 'not-allowed' : 'pointer', color: C.textMuted, padding: 4, display: 'flex', opacity: saving ? 0.4 : 1 }}>
             <X size={16} />
           </button>
@@ -235,7 +280,20 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
                   const isRemoving = removingIds.has(q.id);
                   const isEditing  = editingQId === q.id;
                   return (
-                    <div key={q.id} style={{ borderBottom: isEditing ? `2px solid ${C.green}` : i < questions.length - 1 ? `1px solid ${C.borderLight}` : 'none' }}>
+                    <div
+                      key={q.id}
+                      draggable={!isEditing}
+                      onDragStart={!isEditing ? e => handleDragStart(e, i) : undefined}
+                      onDragOver={!isEditing ? e => handleDragOver(e, i) : undefined}
+                      onDrop={!isEditing ? e => handleDrop(e, i) : undefined}
+                      onDragEnd={!isEditing ? handleDragEnd : undefined}
+                      style={{
+                        borderBottom: isEditing ? `2px solid ${C.green}` : i < questions.length - 1 ? `1px solid ${C.borderLight}` : 'none',
+                        borderTop: !isEditing && dragOverIdx === i && dragIdx !== i ? `2px solid ${C.green}` : undefined,
+                        opacity: dragIdx === i ? 0.4 : 1,
+                        transition: 'opacity 0.15s',
+                      }}
+                    >
                       {isEditing ? (
                         <div style={{ padding: '12px 14px', background: C.surface, display: 'flex', flexDirection: 'column', gap: 8, borderTop: `2px solid ${C.green}`, borderLeft: `2px solid ${C.green}`, borderRight: `2px solid ${C.green}` }}>
                           <div style={{ display: 'flex', gap: 8 }}>
@@ -267,8 +325,10 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
                           </div>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: isRemoving ? C.error.bg : C.surface, transition: 'background 0.15s' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: isRemoving ? C.error.bg : C.surface, transition: 'background 0.15s', cursor: 'grab' }}>
+                          <GripVertical size={14} style={{ color: C.dot, flexShrink: 0, marginTop: 3 }} />
                           <input type="checkbox" checked={isRemoving} onChange={() => toggleRemove(q.id)} title="Seleziona per rimuovere"
+                            onMouseDown={e => e.stopPropagation()}
                             style={{ marginTop: 3, accentColor: C.error.text, flexShrink: 0, cursor: 'pointer' }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12.5, color: isRemoving ? C.error.text : C.text, lineHeight: 1.45, fontWeight: 500, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -340,6 +400,7 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
                     allQuestions={allQuestions}
                     loadingAll={loadingAll}
                     existingIds={existingIds}
+                    emptyMessage={isEdit ? 'Tutte le tue domande sono già nel test.' : 'Nessuna domanda disponibile.'}
                     onAdd={handleQuestionsAdded}
                   />
                 )}
@@ -350,7 +411,7 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
           {/* Messaggi */}
           {(warning || formError) && (
             <div style={{ padding: '0 24px 16px' }}>
-              {warning && <div style={{ background: '#FBF2DC', border: '1px solid #D4B84A', color: '#7A5010', fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>{warning} Premi nuovamente "Salva" per confermare.</div>}
+              {warning && <div style={{ background: '#FBF2DC', border: '1px solid #D4B84A', color: '#7A5010', fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>{warning} Premi nuovamente "{saveLabel}" per confermare.</div>}
               {formError && <div style={{ background: C.error.bg, border: `1px solid ${C.error.border}`, color: C.error.text, fontSize: 13, borderRadius: 8, padding: '10px 14px' }}>{formError}</div>}
             </div>
           )}
@@ -363,7 +424,7 @@ export default function AddTestModal({ data, onClose, onSaved, initialQuestions 
           </button>
           <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: C.green, border: 'none', borderRadius: 8, cursor: saving ? 'not-allowed' : 'pointer', color: '#FFF', fontFamily: font, fontSize: 13, fontWeight: 500, opacity: saving ? 0.8 : 1 }}>
             {saving && <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />}
-            {saving ? 'Salvataggio…' : 'Salva'}
+            {saving ? 'Salvataggio…' : saveLabel}
           </button>
         </div>
       </div>
@@ -671,7 +732,7 @@ function GenerateTab({ onAdd, inputStyle, labelStyle }) {
 // Tab: Le mie domande
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MineTab({ allQuestions, loadingAll, existingIds, onAdd }) {
+function MineTab({ allQuestions, loadingAll, existingIds, emptyMessage, onAdd }) {
   const [qFilter, setQFilter]             = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [topicFilter, setTopicFilter]     = useState('');
@@ -736,7 +797,7 @@ function MineTab({ allQuestions, loadingAll, existingIds, onAdd }) {
         {loadingAll ? (
           <div style={{ padding: 14, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>Caricamento…</div>
         ) : available.length === 0 ? (
-          <div style={{ padding: 14, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>Nessuna domanda disponibile.</div>
+          <div style={{ padding: 14, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>{emptyMessage}</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 14, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>Nessuna domanda trovata.</div>
         ) : filtered.map((q, i) => (
