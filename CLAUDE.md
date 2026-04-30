@@ -10,7 +10,8 @@
 | Icone    | lucide-react                        |
 | Stile    | Inline CSS (nessuna libreria UI)    |
 | AI       | OpenRouter API (`VITE_OPENROUTER_API_KEY`) |
-| PDF      | `pdfjs-dist` + `tesseract.js` (estrazione testo all'upload in `AddDocumentModal`) |
+| PDF read | `pdfjs-dist` + `tesseract.js` (estrazione testo all'upload in `AddDocumentModal`) |
+| PDF gen  | `jspdf` (generazione PDF export in `exportTest.js`)                               |
 
 ---
 
@@ -22,6 +23,7 @@ src/
     pocketbase.js              # Istanza PocketBase singleton
     classifyBloom.js           # Classificazione Bloom via council di 3 modelli AI
     extractText.js             # Estrazione testo da file (pdfjs-dist + Tesseract OCR fallback)
+    exportTest.js              # Funzioni export test: exportMoodleXml, exportWord, exportPdf, exportAiken
   components/
     Login.jsx                  # Pagina di login
     ProtectedRoute.jsx         # Guard per rotte autenticate
@@ -36,6 +38,7 @@ src/
     tests/
       TestsPage.jsx            # Schermata test (struttura identica a Dashboard/DocumentsPage)
       TestModal.jsx            # Modale unica creazione/modifica test (inline add section, 3 tab, drag & drop riordino)
+      ExportTestModal.jsx      # Modale esportazione test (Word, Moodle XML, PDF, Aiken)
   styles/
     theme.js                   # Palette colori, font, BLOOM_STYLES, BLOOM_LEVELS, BLOOM_LABELS
   App.jsx                      # Router principale
@@ -355,6 +358,7 @@ export const BLOOM_LABELS = {
 |-------------------|------------------------------------|-----------------------------------------------------------------------------------------------|
 | `TestsPage.jsx`   | —                                  | Schermata test; struttura identica a Dashboard (3 livelli, bulk delete, no paginazione)       |
 | `TestModal.jsx`   | `test?`, `data`, `onClose`, `onSaved`, `initialQuestions?` | Modale unica creazione/modifica test; `isEdit = test !== null`; lista domande riordinabile via drag & drop + sezione inline "Aggiungi domanda" (3 tab) |
+| `ExportTestModal.jsx` | `test`, `onClose` | Modale esportazione test; supporta Word, Moodle XML, PDF (senza risposta corretta), Aiken (con risposta corretta) |
 
 **Comportamento righe test (livello 3) in `TestsPage`:**
 - Righe test sono espandibili: click apre il dettaglio con la lista delle domande del test
@@ -703,3 +707,35 @@ export default function XModal({ record = null, ...rest }) {
 - Quando file selezionato: mostrare nome + icona + pulsante X per rimuovere
 - Upload obbligatoriamente via `FormData` (non oggetto plain): `formData.append('file', fileObject)`
 - Validazione: materia obbligatoria, file obbligatorio; errore inline con `C.error`
+
+---
+
+## Esportazione test (`src/lib/exportTest.js`)
+
+Tutte le funzioni export usano `downloadBlob(blob, filename)` e `safeFilename(name)` definite nello stesso file.
+Le librerie pesanti (`docx`, `jspdf`) vengono importate **dinamicamente** (`await import(...)`) per evitare di appesantire il bundle iniziale.
+
+| Formato      | Funzione           | Risposta corretta | Note |
+|--------------|--------------------|--------------------|------|
+| Word (.docx) | `exportWord`       | No                 | `docx` lib, import dinamico |
+| Moodle XML   | `exportMoodleXml`  | Sì (`fraction=100`) | sincrono |
+| PDF (.pdf)   | `exportPdf`        | No                 | `jspdf` lib, import dinamico; paginazione automatica |
+| Aiken (.txt) | `exportAiken`      | Sì (`ANSWER: X`)   | sincrono; formato Moodle plain-text |
+
+### Formato Aiken
+Struttura obbligatoria (Moodle rifiuta variazioni):
+```
+Testo della domanda
+A) Opzione A
+B) Opzione B
+C) Opzione C
+D) Opzione D
+ANSWER: A
+```
+- Lettera `ANSWER` derivata dall'indice di `correct_answer` in `options`
+- Riga vuota tra domande consecutive
+
+### PDF con jsPDF
+- `doc.splitTextToSize(text, maxWidth)` per wrapping manuale del testo
+- `checkPage(needed)` controlla spazio residuo e chiama `doc.addPage()` se necessario
+- Senza risposta corretta (come Word) — uso didattico/stampa per studenti

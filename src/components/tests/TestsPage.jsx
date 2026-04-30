@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, ClipboardList, LogOut, Search, ChevronRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, ChevronRight, Trash2, Plus, MoreVertical, Pencil, Download } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_STYLES, BLOOM_LABELS } from '../../styles/theme';
+import ExportTestModal from './ExportTestModal';
 
 // ── Badge livello Bloom ───────────────────────────────────────────────────────
 function BloomBadge({ level }) {
@@ -52,6 +53,7 @@ export default function TestsPage() {
   const [preselectedQuestions, setPreselectedQuestions] = useState([]);
   const [editTest, setEditTest]                 = useState(null);
   const [openMenuId, setOpenMenuId]             = useState(null);
+  const [exportTest, setExportTest]             = useState(null);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -405,6 +407,14 @@ export default function TestsPage() {
                                           <Pencil size={13} /> Modifica
                                         </button>
                                         <button
+                                          onClick={e => { e.stopPropagation(); setExportTest(test); setOpenMenuId(null); }}
+                                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', color: C.text, fontFamily: font, fontSize: 13, textAlign: 'left' }}
+                                          onMouseEnter={e => e.currentTarget.style.background = C.headerBg}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                        >
+                                          <Download size={13} /> Esporta
+                                        </button>
+                                        <button
                                           onClick={e => { e.stopPropagation(); setSelectedIds(new Set([test.id])); setShowDeleteModal(true); setOpenMenuId(null); }}
                                           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', color: C.error.text, fontFamily: font, fontSize: 13, textAlign: 'left' }}
                                           onMouseEnter={e => e.currentTarget.style.background = C.error.bg}
@@ -512,6 +522,11 @@ export default function TestsPage() {
           onSaved={() => { setShowAddModal(false); setPreselectedQuestions([]); loadTests(); }}
           initialQuestions={preselectedQuestions}
         />
+      )}
+
+      {/* ── Modale esportazione ── */}
+      {exportTest && (
+        <ExportTestModal test={exportTest} onClose={() => setExportTest(null)} />
       )}
 
       {/* ── Modale di conferma eliminazione ── */}
