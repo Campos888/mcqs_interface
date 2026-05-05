@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, FileText, ClipboardList, LogOut, Search, ChevronRight, Trash2, Plus, MoreVertical, Pencil } from 'lucide-react';
+import { BookOpen, FileText, ClipboardList, LogOut, Search, ChevronRight, Trash2, Plus, MoreVertical, Pencil, HelpCircle } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif } from '../../styles/theme';
 import AddDocumentModal from './AddDocumentModal';
 import EditDocumentModal from './EditDocumentModal';
+import InfoModal from '../InfoModal';
 
 // ── Helper stile th ───────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ export default function DocumentsPage() {
   const [showAddModal, setShowAddModal]         = useState(false);
   const [editDoc, setEditDoc]                   = useState(null);
   const [openMenuId, setOpenMenuId]             = useState(null);
+  const [showInfo, setShowInfo]                 = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -212,6 +214,15 @@ export default function DocumentsPage() {
           </nav>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              onClick={() => setShowInfo(true)}
+              style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMuted, cursor: 'pointer', padding: '6px 10px', display: 'flex', alignItems: 'center' }}
+              onMouseEnter={e => e.currentTarget.style.color = C.text}
+              onMouseLeave={e => e.currentTarget.style.color = C.textMuted}
+              title="Guida"
+            >
+              <HelpCircle size={14} />
+            </button>
             <span style={{ fontSize: 12, color: C.textMuted }}>{user?.email}</span>
             <button onClick={handleLogout}
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.textMuted, background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: font }}
@@ -474,6 +485,8 @@ export default function DocumentsPage() {
       )}
 
       {/* ── Modale di conferma eliminazione ── */}
+      {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
+
       {showDeleteModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(28,43,29,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
           onClick={() => { if (!deleting) setShowDeleteModal(false); }}
