@@ -1,9 +1,10 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { X, Upload, FileText, File } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { extractText } from '../../lib/extractText';
 import { C, font, serif } from '../../styles/theme';
 import SuggestInput from '../dashboard/SuggestInput';
+import { useAllSuggestions } from '../../lib/useAllSuggestions';
 
 const initialForm = { title: '', subject: '', topic: '', file: null };
 
@@ -17,22 +18,7 @@ export default function AddDocumentModal({ onClose, onSaved, data }) {
   const [extractedText, setExtractedText] = useState('');
   const fileInputRef = useRef(null);
 
-  const subjectSuggestions = useMemo(() => {
-    const set = new Set(data.map(d => (d.subject || '').trim()).filter(Boolean));
-    return [...set].sort();
-  }, [data]);
-
-  const topicSuggestions = useMemo(() => {
-    const subj = form.subject.trim().toLowerCase();
-    if (!subj) return [];
-    const set = new Set(
-      data
-        .filter(d => (d.subject || '').trim().toLowerCase() === subj)
-        .map(d => (d.topic || '').trim())
-        .filter(Boolean)
-    );
-    return [...set].sort();
-  }, [data, form.subject]);
+  const { subjects: subjectSuggestions, topics: topicSuggestions } = useAllSuggestions(form.subject, data);
 
   function setField(key, val) { setForm(f => ({ ...f, [key]: val })); setFormError(''); setWarning(''); }
 

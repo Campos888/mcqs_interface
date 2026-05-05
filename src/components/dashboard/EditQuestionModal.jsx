@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_LEVELS, BLOOM_LABELS } from '../../styles/theme';
 import SuggestInput from './SuggestInput';
+import { useAllSuggestions } from '../../lib/useAllSuggestions';
 
 function parseOptions(raw) {
   if (Array.isArray(raw)) return raw.length ? raw : [''];
@@ -25,22 +26,7 @@ export default function EditQuestionModal({ question, onClose, onSaved, data }) 
   const [formError, setFormError] = useState('');
   const [warning, setWarning]     = useState('');
 
-  const subjectSuggestions = useMemo(() => {
-    const set = new Set(data.map(q => (q.subject || '').trim()).filter(Boolean));
-    return [...set].sort();
-  }, [data]);
-
-  const topicSuggestions = useMemo(() => {
-    const subj = form.subject.trim().toLowerCase();
-    if (!subj) return [];
-    const set = new Set(
-      data
-        .filter(q => (q.subject || '').trim().toLowerCase() === subj)
-        .map(q => (q.topic || '').trim())
-        .filter(Boolean)
-    );
-    return [...set].sort();
-  }, [data, form.subject]);
+  const { subjects: subjectSuggestions, topics: topicSuggestions } = useAllSuggestions(form.subject, data);
 
   const validOptions = form.options.filter(o => o.trim() !== '');
 

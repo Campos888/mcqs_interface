@@ -6,7 +6,7 @@ export default function SuggestInput({ label, value, onChange, suggestions, erro
   const wrapRef = useRef(null);
 
   const filtered = useMemo(() => {
-    if (!value.trim()) return [];
+    if (!value.trim()) return suggestions;
     const q = value.trim().toLowerCase();
     return suggestions.filter(s => s.toLowerCase().includes(q));
   }, [value, suggestions]);

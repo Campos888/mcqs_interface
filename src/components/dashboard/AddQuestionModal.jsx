@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, X, Pencil, Check } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, X, Pencil, Check, Search } from 'lucide-react';
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_LEVELS, BLOOM_LABELS } from '../../styles/theme';
 import SuggestInput from './SuggestInput';
+import { useAllSuggestions } from '../../lib/useAllSuggestions';
 
 const initialForm = {
   subject:        '',
@@ -62,28 +63,13 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
   const [genError, setGenError] = useState('');
   const [savingGenerated, setSavingGenerated] = useState(false);
   const [docSearch, setDocSearch] = useState('');
-  const [showDocList, setShowDocList] = useState(false);
-  const docSearchRef = useRef(null);
+  const [docSubjectFilter, setDocSubjectFilter] = useState('');
+  const [docTopicFilter, setDocTopicFilter] = useState('');
   const [editingGenIdx, setEditingGenIdx] = useState(null);
   const [editGenForm, setEditGenForm] = useState({ content: '', options: [''], correct_answer: '' });
 
   // --- Manual form derived state ---
-  const subjectSuggestions = useMemo(() => {
-    const set = new Set(data.map(q => (q.subject || '').trim()).filter(Boolean));
-    return [...set].sort();
-  }, [data]);
-
-  const topicSuggestions = useMemo(() => {
-    const subj = form.subject.trim().toLowerCase();
-    if (!subj) return [];
-    const set = new Set(
-      data
-        .filter(q => (q.subject || '').trim().toLowerCase() === subj)
-        .map(q => (q.topic || '').trim())
-        .filter(Boolean)
-    );
-    return [...set].sort();
-  }, [data, form.subject]);
+  const { subjects: subjectSuggestions, topics: topicSuggestions } = useAllSuggestions(form.subject, data);
 
   const validOptions = form.options.filter(o => o.trim() !== '');
   useEffect(() => {
@@ -91,15 +77,6 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
       setForm(f => ({ ...f, correct_answer: '' }));
     }
   }, [form.options]);
-
-  // Close doc dropdown on outside click
-  useEffect(() => {
-    function handleMouseDown(e) {
-      if (docSearchRef.current && !docSearchRef.current.contains(e.target)) setShowDocList(false);
-    }
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, []);
 
   // Load documents when switching to generate mode
   useEffect(() => {
@@ -297,6 +274,7 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
           options:        q.options,
           correct_answer: q.correct_answer,
           bloom_level:    '',
+          source_doc:     selectedDocId,
           owner:          pb.authStore.model.id,
         })
       ));
@@ -445,62 +423,79 @@ export default function AddQuestionModal({ onClose, onSaved, data }) {
                 Nessun documento disponibile. Carica un documento nella sezione Documenti.
               </div>
             ) : (<>
-              <div ref={docSearchRef} style={{ position: 'relative' }}>
-                <label style={labelStyle}>Documento *</label>
+              <label style={labelStyle}>Documento *</label>
+              {(() => {
+                const subjectOptions = [...new Set(documents.map(d => (d.subject || '').trim()).filter(Boolean))].sort();
+                const topicOptions = [...new Set(
+                  (docSubjectFilter ? documents.filter(d => (d.subject || '').trim() === docSubjectFilter) : documents)
+                    .map(d => (d.topic || '').trim()).filter(Boolean)
+                )].sort();
+                const selectStyle = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, color: C.text, fontFamily: font, outline: 'none', cursor: 'pointer', flex: 1 };
+                return (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <select value={docSubjectFilter}
+                      onChange={e => { setDocSubjectFilter(e.target.value); setDocTopicFilter(''); setSelectedDocId(''); setGeneratedQuestions([]); setSelectedGenIdx(new Set()); setGenError(''); }}
+                      disabled={generating} style={selectStyle}>
+                      <option value="">Tutte le materie</option>
+                      {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <select value={docTopicFilter}
+                      onChange={e => { setDocTopicFilter(e.target.value); setSelectedDocId(''); setGeneratedQuestions([]); setSelectedGenIdx(new Set()); setGenError(''); }}
+                      disabled={generating || !docSubjectFilter}
+                      style={{ ...selectStyle, opacity: docSubjectFilter ? 1 : 0.45, cursor: (generating || !docSubjectFilter) ? 'not-allowed' : 'pointer' }}>
+                      <option value="">Tutti gli argomenti</option>
+                      {topicOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.textFaint }} />
                 <input
                   value={docSearch}
-                  onChange={e => { setDocSearch(e.target.value); setShowDocList(true); }}
-                  onFocus={() => setShowDocList(true)}
-                  placeholder="Cerca documento…"
+                  onChange={e => { setDocSearch(e.target.value); setSelectedDocId(''); setGeneratedQuestions([]); setSelectedGenIdx(new Set()); setGenError(''); }}
+                  placeholder="Cerca per nome…"
                   disabled={generating}
-                  style={inputStyle}
+                  style={{ ...inputStyle, paddingLeft: 28 }}
                 />
-                {showDocList && (() => {
-                  const q = docSearch.trim().toLowerCase();
-                  const filtered = q
-                    ? documents.filter(d => (d.title || d.file || '').toLowerCase().includes(q))
-                    : documents;
-                  if (filtered.length === 0) return null;
-                  return (
-                    <ul style={{
-                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
-                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-                      margin: '2px 0 0', padding: 0, listStyle: 'none',
-                      maxHeight: 200, overflowY: 'auto',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
-                    }}>
-                      {filtered.map(doc => {
-                        const label = doc.title || doc.file || '—';
-                        const isActive = doc.id === selectedDocId;
-                        return (
-                          <li
-                            key={doc.id}
-                            onMouseDown={e => {
-                              e.preventDefault();
-                              setSelectedDocId(doc.id);
-                              setDocSearch(label);
-                              setShowDocList(false);
-                              setGeneratedQuestions([]);
-                              setSelectedGenIdx(new Set());
-                              setGenError('');
-                            }}
-                            style={{
-                              padding: '8px 12px', fontSize: 13, cursor: 'pointer',
-                              color: isActive ? C.green : C.text,
-                              fontWeight: isActive ? 600 : 400,
-                              background: isActive ? C.expandBg : 'transparent',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = C.expandBg}
-                            onMouseLeave={e => e.currentTarget.style.background = isActive ? C.expandBg : 'transparent'}
-                          >
-                            {label}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  );
-                })()}
               </div>
+              {(() => {
+                let filtered = documents;
+                if (docSubjectFilter) filtered = filtered.filter(d => (d.subject || '').trim() === docSubjectFilter);
+                if (docTopicFilter)   filtered = filtered.filter(d => (d.topic   || '').trim() === docTopicFilter);
+                if (docSearch.trim()) filtered = filtered.filter(d => (d.title || d.file || '').toLowerCase().includes(docSearch.trim().toLowerCase()));
+                return (
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
+                    {filtered.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', color: C.textFaint, fontSize: 13 }}>Nessun documento trovato.</div>
+                    ) : filtered.map((doc, i) => {
+                      const label = doc.title || doc.file || '—';
+                      const isActive = doc.id === selectedDocId;
+                      return (
+                        <div key={doc.id}
+                          onClick={() => { if (!generating) { setSelectedDocId(doc.id); setGeneratedQuestions([]); setSelectedGenIdx(new Set()); setGenError(''); } }}
+                          style={{
+                            padding: '9px 12px', fontSize: 13, cursor: generating ? 'default' : 'pointer',
+                            borderBottom: i < filtered.length - 1 ? `1px solid ${C.borderLight}` : 'none',
+                            background: isActive ? C.expandBg : C.surface,
+                            color: isActive ? C.green : C.text,
+                            fontWeight: isActive ? 600 : 400,
+                          }}
+                          onMouseEnter={e => { if (!isActive && !generating) e.currentTarget.style.background = C.expandBg; }}
+                          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = C.surface; }}
+                        >
+                          <div>{label}</div>
+                          {(doc.subject || doc.topic) && (
+                            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>
+                              {[doc.subject, doc.topic].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               <div>
                 <label style={labelStyle}>Numero di domande</label>

@@ -3,6 +3,7 @@ import { X, Trash2, Plus, Pencil, Check, Search, GripVertical } from 'lucide-rea
 import pb from '../../lib/pocketbase';
 import { C, font, serif, BLOOM_STYLES, BLOOM_LABELS, BLOOM_LEVELS } from '../../styles/theme';
 import SuggestInput from '../dashboard/SuggestInput';
+import { useAllSuggestions } from '../../lib/useAllSuggestions';
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
 
@@ -98,20 +99,7 @@ export default function TestModal({ test = null, data, onClose, onSaved, initial
   }, [showAdd]);
 
   // ── Suggerimenti materia/argomento per il test ────────────────────────────
-  const subjectSuggestions = useMemo(() => {
-    const set = new Set(data.map(d => (d.subject || '').trim()).filter(Boolean));
-    return [...set].sort();
-  }, [data]);
-
-  const topicSuggestions = useMemo(() => {
-    const subj = form.subject.trim().toLowerCase();
-    if (!subj) return [];
-    const set = new Set(
-      data.filter(d => (d.subject || '').trim().toLowerCase() === subj)
-        .map(d => (d.topic || '').trim()).filter(Boolean)
-    );
-    return [...set].sort();
-  }, [data, form.subject]);
+  const { subjects: subjectSuggestions, topics: topicSuggestions } = useAllSuggestions(form.subject, data);
 
   const existingIds = useMemo(() => new Set(questions.map(q => q.id)), [questions]);
 
@@ -382,7 +370,6 @@ export default function TestModal({ test = null, data, onClose, onSaved, initial
                 {addMode === 'manual' && (
                   <ManualTab
                     allQuestions={allQuestions}
-                    existingSubjects={subjectSuggestions}
                     onAdd={handleQuestionsAdded}
                     inputStyle={inputStyle}
                     labelStyle={labelStyle}
@@ -436,23 +423,13 @@ export default function TestModal({ test = null, data, onClose, onSaved, initial
 // Tab: Manuale
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ManualTab({ allQuestions, existingSubjects, onAdd, inputStyle, labelStyle }) {
+function ManualTab({ allQuestions, onAdd, inputStyle, labelStyle }) {
   const [form, setForm]           = useState(initialManualForm);
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
   const [warning, setWarning]     = useState('');
 
-  const subjectSuggestions = existingSubjects;
-
-  const topicSuggestions = useMemo(() => {
-    const subj = form.subject.trim().toLowerCase();
-    if (!subj) return [];
-    const set = new Set(
-      allQuestions.filter(q => (q.subject || '').trim().toLowerCase() === subj)
-        .map(q => (q.topic || '').trim()).filter(Boolean)
-    );
-    return [...set].sort();
-  }, [allQuestions, form.subject]);
+  const { subjects: subjectSuggestions, topics: topicSuggestions } = useAllSuggestions(form.subject, allQuestions);
 
   const validOptions = form.options.filter(o => o.trim() !== '');
   useEffect(() => {
@@ -606,7 +583,7 @@ function GenerateTab({ onAdd, inputStyle, labelStyle }) {
     setSavingGenerated(true); setGenError('');
     try {
       const records = await Promise.all(selected.map(q =>
-        pb.collection('Question').create({ subject: q.subject || '', topic: q.topic || '', content: q.content, options: q.options, correct_answer: q.correct_answer, bloom_level: '', owner: pb.authStore.model.id })
+        pb.collection('Question').create({ subject: q.subject || '', topic: q.topic || '', content: q.content, options: q.options, correct_answer: q.correct_answer, bloom_level: '', source_doc: selectedDocId, owner: pb.authStore.model.id })
       ));
       onAdd(records);
     } catch { setGenError('Errore durante il salvataggio. Riprova.'); setSavingGenerated(false); }
